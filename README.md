@@ -1,2 +1,3 @@
-# Validador-certificados
-Validador de Certificados Engenharia Clínica
+# Projeto Streamlit
+
+streamlit run app.py
