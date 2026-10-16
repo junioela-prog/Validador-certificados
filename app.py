@@ -1,29 +1,65 @@
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 
-st.set_page_config(page_title="Validador de Certificados",layout="wide")
+st.set_page_config(
+    page_title="Validador de Certificados",
+    layout="wide"
+)
 
 st.title("Validador de Certificados - Engenharia Clínica")
 
-uploads=st.file_uploader("Envie um ou mais certificados PDF",type=['pdf'],accept_multiple_files=True)
+uploads = st.file_uploader(
+    "Envie um ou mais certificados PDF",
+    type=["pdf"],
+    accept_multiple_files=True
+)
 
 if uploads:
-    dados=[]
-    for arq in uploads:
-        dados.append({"Arquivo":arq.name,"Status":"Aguardando validação","Resultado":"Pendente"})
-    df=pd.DataFrame(dados)
-    st.dataframe(df,use_container_width=True)
+
+    dados = []
+
+    for arquivo in uploads:
+        dados.append({
+            "Arquivo": arquivo.name,
+            "Status": "Aguardando validação",
+            "Resultado": "Pendente"
+        })
+
+    df = pd.DataFrame(dados)
+
+    st.subheader("Arquivos carregados")
+    st.dataframe(df)
 
     if st.button("Processar Certificados"):
-        resultados=[]
-        for arq in uploads:
-            resultados.append({"Arquivo":arq.name,"Resultado":"APROVADO (protótipo)"})
-        st.success(f"{len(resultados)} certificado(s) processado(s).")
-        st.dataframe(pd.DataFrame(resultados),use_container_width=True)
-        csv=pd.DataFrame(resultados).to_csv(index=False).encode()
-        st.download_button('Baixar relatório CSV',csv,'relatorio_certificados.csv','text/csv')
-else:
-    st.info('Envie certificados PDF para iniciar.')
 
-st.markdown(
+        resultados = []
+
+        for arquivo in uploads:
+            resultados.append({
+                "Arquivo": arquivo.name,
+                "Resultado": "APROVADO (Protótipo)"
+            })
+
+        resultado_df = pd.DataFrame(resultados)
+
+        st.success(
+            f"{len(resultados)} certificado(s) processado(s)"
+        )
+
+        st.dataframe(resultado_df)
+
+else:
+    st.info(
+        "Envie um ou mais certificados PDF para iniciar."
+    )
+
+st.markdown("""
+### Próximas funcionalidades
+
+- Leitura automática dos PDFs
+- Integração com RQ.COR.111
+- Aprovação e reprovação automática
+- Geração de parecer PDF
+- Dashboard de indicadores
+- Histórico de calibrações
+""")
