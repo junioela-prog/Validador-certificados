@@ -164,37 +164,6 @@ def gerar_pdf(nome_arquivo, dados):
     return buffer
 
 
-# ==========================================
-# TELA
-# ==========================================from io import BytesIO
-from reportlab.pdfgen import canvas
-
-
-def gerar_pdf(nome_arquivo, dados):
-    buffer = BytesIO()
-
-    pdf = canvas.Canvas(buffer)
-
-    pdf.setTitle("Relatório de Análise")
-
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(50, 800, "RELATORIO DE ANALISE DE CERTIFICADO")
-
-    pdf.setFont("Helvetica", 11)
-
-    pdf.drawString(50, 760, f"Arquivo: {nome_arquivo}")
-    pdf.drawString(50, 740, "Resultado: APROVADO")
-    pdf.drawString(50, 720, "Status: Validado pelo sistema")
-
-    pdf.drawString(50, 680, "Engenharia Clinica")
-    pdf.drawString(50, 660, "Junior Antonio da Silva Santos")
-
-    pdf.save()
-
-    buffer.seek(0)
-
-    return buffer
-
 
 st.set_page_config(
     page_title="Validador de Certificados",
@@ -204,10 +173,16 @@ st.set_page_config(
 st.title("Validador de Certificados - Engenharia Clínica")
 
 uploads = st.file_uploader(
-    "Envie um ou mais certificados PDF",
+    "Selecione os certificados em PDF",
     type=["pdf"],
     accept_multiple_files=True
 )
+
+abas_rq = carregar_rq()
+
+st.subheader("Abas encontradas na RQ")
+
+st.write(list(abas_rq.keys()))
 
 if uploads:
 
