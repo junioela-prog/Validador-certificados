@@ -170,7 +170,7 @@ def gerar_pdf(nome_arquivo, dados):
 from reportlab.pdfgen import canvas
 
 
-def gerar_pdf(nome_arquivo):
+def gerar_pdf(nome_arquivo, dados):
     buffer = BytesIO()
 
     pdf = canvas.Canvas(buffer)
