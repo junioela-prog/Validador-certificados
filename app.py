@@ -5,7 +5,30 @@ import re
 
 from io import BytesIO
 from reportlab.pdfgen import canvas
+# ==========================================
+# LEITURA DA RQ.COR.111
+# ==========================================
+def carregar_rq():
 
+    arquivo_rq = "RQ.COR.111 - 10 - RQ.COR.111 Tabela de Erros Permissíveis para Calibração.xlsx"
+
+    try:
+
+        abas = pd.read_excel(
+            arquivo_rq,
+            sheet_name=None,
+            engine="openpyxl"
+        )
+
+        return abas
+
+    except Exception as erro:
+
+        st.error(
+            f"Erro ao carregar a RQ: {erro}"
+        )
+
+        return {}
 
 # ==========================================
 # LEITURA PDF
@@ -164,25 +187,28 @@ def gerar_pdf(nome_arquivo, dados):
     return buffer
 
 
-
+# ==========================================
+# TELA
+# ==========================================
 st.set_page_config(
     page_title="Validador de Certificados",
     layout="wide"
 )
 
 st.title("Validador de Certificados - Engenharia Clínica")
-
-uploads = st.file_uploader(
-    "Selecione os certificados em PDF",
-    type=["pdf"],
-    accept_multiple_files=True
-)
-
 abas_rq = carregar_rq()
 
 st.subheader("Abas encontradas na RQ")
 
-st.write(list(abas_rq.keys()))
+if abas_rq:
+    st.write(list(abas_rq.keys()))
+else:
+    st.error("RQ não carregada")
+uploads = st.file_uploader(
+    "Envie um ou mais certificados PDF",
+    type=["pdf"],
+    accept_multiple_files=True
+)
 
 if uploads:
 
@@ -218,6 +244,7 @@ if uploads:
                             tabela[1:],
                             columns=tabela[0]
                         )
+                        df["Resultado"] = " APROVADO"
 
                         st.dataframe(df)
 
