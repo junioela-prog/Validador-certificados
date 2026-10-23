@@ -13,6 +13,78 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 
 st.set_page_config(page_title="Validador de Certificados", page_icon="📄", layout="wide")
 
+# ============================================================
+# TABELA DE TOLERÂNCIAS OFICIAIS (RQ.COR.111 - 20 Abas)
+# ============================================================
+LIMITES_EQUIPAMENTOS = {
+    "Oxímetro de pulso": {
+        "tipo_padrao": "misto_oximetro",
+    },
+    "Monitor multiparâmetros": {
+        "tipo_padrao": "monitor_multiparamentros",
+    },
+    "Monitor de triagem": {
+        "tipo_padrao": "monitor_triagem",
+    },
+    "Termômetro": {
+        "limite_absoluto": 1.5,
+    },
+    "Termômetro infravermelho": {
+        "limite_absoluto": 1.0,
+    },
+    "Termohigrômetro": {
+        "limite_absoluto": 1.5,
+    },
+    "Esfigmomanômetro": {
+        "limite_absoluto": 3.0,
+    },
+    "DEA": {
+        "percentual": 15.0,
+    },
+    "Desfibrilador": {
+        "percentual": 15.0,
+    },
+    "Balança": {
+        "limite_absoluto": 0.05,
+    },
+    "Centrífuga": {
+        "percentual": 5.0,
+    },
+    "Bisturi eletrônico": {
+        "percentual": 15.0,
+    },
+    "Bomba de infusão": {
+        "limite_absoluto": 1.5,
+    },
+    "Eletrocardiógrafo": {
+        "limite_absoluto": 5.0,
+    },
+    "Esteira ergómetrica": {
+        "percentual": 8.0,
+    },
+    "Estufa": {
+        "limite_absoluto": 1.5,
+    },
+    "Micropipetas": {
+        "percentual": 3.0,
+    },
+    "Câmara de Conservação": {
+        "limite_absoluto": 1.5,
+    },
+    "Ventilador pulmonar": {
+        "percentual": 10.0,
+    },
+    "Incubadora Neonatal": {
+        "limite_absoluto": 1.5,
+    },
+    "Laser Vermelho e Infravermelho": {
+        "percentual": 20.0,
+    },
+    "Espirômetro": {
+        "percentual": 10.0,
+    },
+}
+
 
 # ============================================================
 # FUNÇÕES GERAIS
@@ -27,14 +99,18 @@ def normalizar(valor):
     except (TypeError, ValueError):
         pass
     texto = str(valor).strip().lower()
-    texto = texto.replace("º", "o").replace("ª", "a")
-    texto = texto.replace("µ", "u").replace("μ", "u")
-    texto = re.sub(r"[^a-z0-9,./%°+-]+", " ", texto)
+    substituicoes = {
+        "º": "o", "ª": "a", "µ": "u", "μ": "u", "ç": "c",
+        "ã": "a", "á": "a", "à": "a", "â": "a", "é": "e",
+        "ê": "e", "í": "i", "ó": "o", "ô": "o", "õ": "o", "ú": "u",
+    }
+    for antigo, novo in substituicoes.items():
+        texto = texto.replace(antigo, novo)
+    texto = re.sub(r"[^a-z0-9,./%°+\-]+", " ", texto)
     return re.sub(r"\s+", " ", texto).strip()
 
 
 def numero_ptbr(valor):
-    """Converte números no padrão brasileiro e internacional."""
     if valor is None:
         return None
     try:
@@ -42,14 +118,13 @@ def numero_ptbr(valor):
             return None
     except (TypeError, ValueError):
         pass
-
     if isinstance(valor, (int, float)) and not isinstance(valor, bool):
         return float(valor)
 
     s = str(valor).strip().replace("−", "-").replace("–", "-")
     if not s:
         return None
-    s = re.sub(r"[^0-9,\.eE+-]", "", s)
+    s = re.sub(r"[^0-9,\.eE+\-]", "", s)
     if not s or not re.search(r"\d", s):
         return None
 
@@ -67,19 +142,20 @@ def numero_ptbr(valor):
         return None
 
 
-def fmt_num(n):
-    if n is None:
+def fmt_num(valor):
+    if valor is None:
         return "Não identificado"
-    return f"{n:.8g}".replace(".", ",")
+    try:
+        if pd.isna(valor):
+            return "Não identificado"
+    except (TypeError, ValueError):
+        pass
+    return f"{float(valor):.8g}".replace(".", ",")
 
 
-def chave_ponto(valor):
-    """Normaliza um ponto para comparar, por exemplo, '30' com '30,0'."""
-    n = numero_ptbr(valor)
-    if n is not None:
-        return f"{n:.10g}"
-    return normalizar(valor)
-
+# ============================================================
+# EXTRAÇÃO E IDENTIFICAÇÃO DE EQUIPAMENTOS (20 ABAS)
+# ============================================================
 
 def extrair_texto_pdf(arquivo):
     arquivo.seek(0)
@@ -94,26 +170,117 @@ def extrair_texto_pdf(arquivo):
     return "\n".join(partes), tabelas
 
 
-def extrair_metadados(texto):
+def identificar_equipamento(texto, nome_arquivo=""):
+    texto_norm = normalizar(texto)
+    arquivo_norm = normalizar(nome_arquivo)
+    
+    rotulos = [
+        r"^\s*(?:tipo de equipamento|equipamento|instrumento|item calibrado|"
+        r"descricao do equipamento|descrição do equipamento)\s*[:\-]\s*(.+)$"
+    ]
+    
+    candidatos = []
+    for linha in texto.splitlines():
+        linha_limpa = linha.strip()
+        if not linha_limpa:
+            continue
+        for padrao in rotulos:
+            m = re.search(padrao, linha_limpa, re.IGNORECASE)
+            if m:
+                candidatos.append(m.group(1).strip()[:180])
+                break
+
+    fonte = normalizar(" ".join(candidatos)) if candidatos else ""
+    if not fonte:
+        fonte = arquivo_norm
+
+    regras = [
+        ("Monitor multiparâmetros", ("monitor multiparametros", "monitor multiparametro", "monitor multiparâmetros")),
+        ("Monitor de triagem", ("monitor de triagem", "monitor triagem")),
+        ("Termômetro infravermelho", ("termometro infravermelho", "termometro infra vermelho", "termometro IR", "infrared thermometer")),
+        ("Termohigrômetro", ("termohigrometro", "termo higrometro", "termo-higrometro")),
+        ("DEA", ("desfibrilador externo automatico", " dea ", "dea")),
+        ("Desfibrilador", ("desfibrilador",)),
+        ("Termômetro", ("termometro", "termometro digital", "termometro de contato")),
+        ("Oxímetro de pulso", ("oximetro", "oximetro de pulso", "pulse oximeter")),
+        ("Esfigmomanômetro", ("esfigmomanometro", "pni", "pressao nao invasiva")),
+        ("Balança", ("balanca", "balanca digital", "balanca de bioimpedancia")),
+        ("Centrífuga", ("centrifuga", "excelsa")),
+        ("Bisturi eletrônico", ("bisturi", "eletrocauterio")),
+        ("Bomba de infusão", ("bomba de infusao", "bomba infusora", "bomba de seringa")),
+        ("Eletrocardiógrafo", ("eletrocardiografo",)),
+        ("Esteira ergómetrica", ("esteira ergometrica", "esteira")),
+        ("Estufa", ("estufa", "bloco termico", "banho maria", "incubadora biologica", "berço aquecido")),
+        ("Micropipetas", ("micropipeta", "multipette", "reference")),
+        ("Câmara de Conservação", ("camara de conservacao", "freezer", "nexxto")),
+        ("Ventilador pulmonar", ("ventilador pulmonar", "auto fluxo", "oxylog")),
+        ("Incubadora Neonatal", ("incubadora neonatal",)),
+        ("Laser Vermelho e Infravermelho", ("laser vermelho", "laser infravermelho")),
+        ("Espirômetro", ("espirometro",)),
+    ]
+
+    for nome, termos in regras:
+        for termo in termos:
+            termo_n = normalizar(termo)
+            if fonte and (fonte == termo_n or termo_n in fonte):
+                return nome, "Identificado no campo do equipamento/nome do arquivo"
+
+    if not candidatos:
+        prioridade = [
+            ("Monitor multiparâmetros", r"monitor\s+multi[\-\s]?par[aâ]metros"),
+            ("Monitor de triagem", r"monitor\s+de\s+triagem"),
+            ("Termômetro infravermelho", r"term[oô]metro\s*(?:infra[\-\s]?vermelho|infravermelho)|infrared thermometer"),
+            ("Termohigrômetro", r"termo[\-\s]?higr[oô]metro"),
+            ("Oxímetro de pulso", r"ox[ií]metro(?:\s+de\s+pulso)?|pulse oximeter"),
+            ("Esfigmomanômetro", r"esfigmoman[oô]metro|press[aã]o n[aã]o invasiva"),
+            ("Bomba de infusão", r"bomba\s+(?:de\s+)?infus[aã]o|bomba infusora"),
+            ("Desfibrilador", r"desfibrilador"),
+            ("Eletrocardiógrafo", r"eletrocardiógrafo"),
+            ("Esteira ergómetrica", r"esteira ergométrica"),
+            ("Micropipetas", r"micropipeta"),
+            ("Ventilador pulmonar", r"ventilador pulmonar"),
+            ("Incubadora Neonatal", r"incubadora neonatal"),
+            ("Laser Vermelho e Infravermelho", r"laser"),
+            ("Espirômetro", r"espirômetro"),
+            ("Termômetro", r"term[oô]metro"),
+            ("Balança", r"balan[cç]a"),
+            ("Centrífuga", r"centr[ií]fuga"),
+            ("Bisturi eletrônico", r"bisturi|elétrocautério"),
+        ]
+        for nome, padrao in prioridade:
+            if re.search(padrao, texto, re.IGNORECASE):
+                if nome == "Desfibrilador" and re.search(
+                    r"desfibrilador\s+externo\s+autom[aá]tico|\bDEA\b", texto, re.IGNORECASE
+                ):
+                    return "DEA", "Identificado no texto do certificado"
+                return nome, "Identificado no texto do certificado"
+
+    return "Não identificado com segurança", "Confira o campo Equipamento/Instrumento no PDF"
+
+
+def extrair_metadados(texto, nome_arquivo=""):
     linhas = [x.strip() for x in texto.splitlines() if x.strip()]
-    dados = {}
     padroes = {
-        "Cliente": r"(?:cliente|contratante)\s*[:\-]?\s*(.+)",
-        "CNPJ": r"CNPJ\s*[:\-]?\s*([\d./-]+)",
-        "Equipamento": r"(?:equipamento|instrumento|item calibrado)\s*[:\-]?\s*(.+)",
-        "Modelo": r"modelo\s*[:\-]?\s*(.+)",
-        "Fabricante": r"(?:fabricante|marca)\s*[:\-]?\s*(.+)",
-        "Número de série": r"(?:número de série|nº série|n. série|serial)\s*[:\-]?\s*(.+)",
-        "Patrimônio": r"(?:patrimônio|nº patrimônio)\s*[:\-]?\s*(.+)",
-        "TAG": r"TAG\s*[:\-]?\s*(.+)",
-        "Data da calibração": r"(?:data da calibração|data de calibração|data)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+        "Cliente": r"(?:cliente|contratante)\s*[:\-]\s*(.+)",
+        "CNPJ": r"CNPJ\s*[:\-]\s*([\d./\-]+)",
+        "Modelo": r"\bmodelo\s*[:\-]\s*(.+)",
+        "Fabricante": r"(?:fabricante|marca)\s*[:\-]\s*(.+)",
+        "Número de série": r"(?:número de série|nº série|n. série|serial)\s*[:\-]\s*(.+)",
+        "Patrimônio": r"(?:patrimônio|nº patrimônio)\s*[:\-]\s*(.+)",
+        "TAG": r"\bTAG\s*[:\-]\s*(.+)",
+        "Data da calibração": r"(?:data da calibração|data de calibração|data)\s*[:\-]\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
     }
+    dados = {}
     for nome, padrao in padroes.items():
         for linha in linhas:
             m = re.search(padrao, linha, re.IGNORECASE)
             if m:
                 dados[nome] = m.group(1).strip()[:180]
                 break
+
+    equipamento, fonte = identificar_equipamento(texto, nome_arquivo)
+    dados["Equipamento identificado"] = equipamento
+    dados["Fonte da identificação"] = fonte
     return dados
 
 
@@ -123,14 +290,14 @@ def tabelas_pdf_para_df(tabelas):
         if not tabela or len(tabela) < 2:
             continue
         linhas = [[(c or "").strip().replace("\n", " ") for c in linha] for linha in tabela]
-        cab = []
+        cabecalhos = []
         for i, c in enumerate(linhas[0]):
-            nome = c or f"Coluna {i+1}"
-            if nome in cab:
-                nome = f"{nome} ({i+1})"
-            cab.append(nome)
+            nome = c or f"Coluna {i + 1}"
+            if nome in cabecalhos:
+                nome = f"{nome} ({i + 1})"
+            cabecalhos.append(nome)
         try:
-            df = pd.DataFrame(linhas[1:], columns=cab)
+            df = pd.DataFrame(linhas[1:], columns=cabecalhos)
             if not df.empty:
                 df.attrs["numero_tabela_pdf"] = num_tabela
                 saida.append(df)
@@ -139,61 +306,122 @@ def tabelas_pdf_para_df(tabelas):
     return saida
 
 
-# ============================================================
-# LEITURA DOS RESULTADOS DO CERTIFICADO PDF
-# ============================================================
-
 def localizar_colunas_resultado(df):
     nomes = {c: normalizar(c) for c in df.columns}
+    col_erro = next((c for c, n in nomes.items() if re.search(r"\berro\b", n)), None)
+    col_inc = next((c for c, n in nomes.items() if "incerteza" in n), None)
 
-    col_erro = next(
-        (c for c, n in nomes.items() if re.search(r"\berro\b", n)),
-        None
+    termos_ponto = (
+        "ponto", "referencia", "nominal", "setpoint",
+        "valor indicado no padrao", "valor do padrao",
+        "indicacao do padrao", "valor de referencia",
     )
-    col_inc = next(
-        (c for c, n in nomes.items() if "incerteza" in n),
-        None
-    )
-
-    # Procura coluna que identifica o ponto. Evita escolher "erro" e "incerteza".
-    # Prefere o ponto nominal/referência ou o valor indicado pelo padrão.
-    # Evita escolher o valor indicado pelo instrumento se houver coluna do padrão.
-    termos_prioritarios = ("ponto", "referencia", "nominal", "setpoint", "valor indicado no padrao",
-                           "valor indicado padrão", "valor do padrao", "indicacao do padrao")
     col_ponto = next(
         (c for c, n in nomes.items()
-         if any(t in n for t in termos_prioritarios)
-         and "erro" not in n and "incerteza" not in n),
+         if any(t in n for t in termos_ponto)
+         and "erro" not in n and "incerteza" not in n
+         and "instrumento" not in n),
         None
     )
     if col_ponto is None:
-        termos_ponto = ("padrão", "padrao", "valor indicado", "indicado")
         col_ponto = next(
             (c for c, n in nomes.items()
-             if any(t in n for t in termos_ponto)
-             and "instrumento" not in n and "erro" not in n and "incerteza" not in n),
+             if ("padrao" in n or "referencia" in n or "ponto" in n)
+             and "erro" not in n and "incerteza" not in n
+             and "instrumento" not in n),
             None
         )
     return col_erro, col_inc, col_ponto
 
 
-def extrair_pontos(tabelas_df):
+def obter_limite(equipamento, ponto_texto):
+    config = LIMITES_EQUIPAMENTOS.get(equipamento)
+    if not config:
+        return None, "Não há configuração oficial para este equipamento"
+
+    ponto_num = numero_ptbr(ponto_texto)
+    if ponto_num is None:
+        return None, "Não foi possível ler o valor numérico do ponto"
+
+    if "percentual" in config:
+        p = config["percentual"]
+        limite_calc = abs(ponto_num) * (p / 100.0)
+        return limite_calc, f"Tolerância percentual de {p}%"
+
+    if "limite_absoluto" in config:
+        val = config["limite_absoluto"]
+        return val, f"Tolerância absoluta de ±{val}"
+
+    tipo = config.get("tipo_padrao")
+    if tipo in ["misto_oximetro", "monitor_multiparamentros", "monitor_triagem"]:
+        txt_lower = normalizar(ponto_texto)
+        
+        if "temp" in txt_lower or (35 <= ponto_num <= 42 and "bpm" not in txt_lower and "pni" not in txt_lower):
+            return 0.8, "Tolerância absoluta de ±0.8 °C"
+            
+        if "fr" in txt_lower or "respiracao" in txt_lower:
+            return 3.0, "Tolerância absoluta de ±3 BRPM"
+
+        if "bpm" in txt_lower or "frequencia" in txt_lower or "pni" in txt_lower or "sistolica" in txt_lower or "diastolica" in txt_lower:
+            return 5.0, "Tolerância absoluta de ±5"
+
+        if ponto_num <= 100 and "bpm" not in txt_lower:
+            limite_calc = abs(ponto_num) * (3.0 / 100.0)
+            return limite_calc, "Tolerância percentual de 3% (SpO2)"
+        else:
+            return 5.0, "Tolerância absoluta padrão de ±5"
+
+    return None, "Regra de tolerância não definida"
+
+
+def avaliar_pontos(pontos, equipamento):
+    for ponto in pontos:
+        limite, origem = obter_limite(equipamento, ponto.get("Ponto / referência", ""))
+        ponto["Limite permissível"] = limite
+        ponto["Origem do limite"] = origem
+        valor = ponto.get("|Erro| + |Incerteza|")
+        if limite is None:
+            ponto["Resultado"] = "PENDENTE"
+            ponto["Motivo"] = "Não foi possível calcular o limite para este ponto."
+        elif valor is None:
+            ponto["Resultado"] = "PENDENTE"
+            ponto["Motivo"] = "Não foi possível calcular erro + incerteza."
+        elif valor <= limite:
+            ponto["Resultado"] = "APROVADO"
+            ponto["Motivo"] = "Soma do erro absoluto e da incerteza dentro do limite configurado."
+        else:
+            ponto["Resultado"] = "REPROVADO"
+            ponto["Motivo"] = "Soma do erro absoluto e da incerteza acima do limite configurado."
+    return pontos
+
+
+def calcular_status_geral(pontos, equipamento):
+    if not pontos:
+        return "PENDENTE — nenhum ponto foi extraído"
+    if equipamento not in LIMITES_EQUIPAMENTOS:
+        return "PENDENTE — equipamento sem configuração de limites"
+    resultados = [p.get("Resultado") for p in pontos]
+    if any(r == "REPROVADO" for r in resultados):
+        return "REPROVADO — pelo menos um ponto excedeu o limite configurado"
+    if all(r == "APROVADO" for r in resultados):
+        return "APROVADO — todos os pontos estão dentro dos limites configurados"
+    return "PENDENTE — existem pontos sem limite oficial configurado"
+
+
+def extrair_pontos(tabelas_df, equipamento):
     pontos = []
     for df in tabelas_df:
         col_erro, col_inc, col_ponto = localizar_colunas_resultado(df)
-        if not col_erro or not col_inc:
+        if col_erro is None or col_inc is None:
             continue
-
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             erro = numero_ptbr(row.get(col_erro))
             incerteza = numero_ptbr(row.get(col_inc))
             if erro is None or incerteza is None:
                 continue
-
-            ponto = str(row.get(col_ponto, "")).strip() if col_ponto else ""
-            if not ponto or ponto.lower() == "nan":
-                ponto = f"Linha {idx + 2}"
-
+            ponto = str(row.get(col_ponto, "")).strip() if row.get(col_ponto) is not None else ""
+            if ponto.lower() == "nan":
+                ponto = ""
             pontos.append({
                 "ID": len(pontos) + 1,
                 "Tabela PDF": df.attrs.get("numero_tabela_pdf", ""),
@@ -202,217 +430,11 @@ def extrair_pontos(tabelas_df):
                 "Incerteza lida": abs(incerteza),
                 "|Erro| + |Incerteza|": abs(erro) + abs(incerteza),
                 "Limite permissível": None,
-                "Origem do limite": "",
+                "Origem do limite": "Limite não avaliado",
                 "Resultado": "PENDENTE",
-                "Motivo": "Ainda não foi localizado um limite correspondente na planilha."
+                "Motivo": "Aguardando aplicação dos limites configurados no código.",
             })
-    return pontos
-
-
-# ============================================================
-# LEITURA AUTOMÁTICA DA PLANILHA RQ.COR.111
-# ============================================================
-
-def ler_excel(arquivo):
-    arquivo.seek(0)
-    return pd.read_excel(arquivo, sheet_name=None, header=None, dtype=object)
-
-
-def encontrar_linha_cabecalho(df, termos, max_linhas=40):
-    """Escolhe a linha com maior probabilidade de conter os títulos de ponto e limite."""
-    melhor_linha, melhor_pontuacao = None, 0
-    for i in range(min(len(df), max_linhas)):
-        celulas = [normalizar(v) for v in df.iloc[i].tolist()]
-        texto_linha = " ".join(c for c in celulas if c)
-        tem_ponto = any(t in texto_linha for t in (
-            "ponto", "nominal", "referencia", "referência", "faixa", "setpoint", "valor de calibracao"
-        ))
-        tem_limite = any(t in texto_linha for t in (
-            "limite", "tolerancia", "tolerância", "permissivel", "permissível",
-            "desvio aceitavel", "desvio aceitável", "desvio maximo", "desvio máximo",
-            "erro maximo", "erro máximo", "erro permitido", "erro admissivel",
-            "erro admissível", "exatidao", "exatidão", "mpe", "emp", "accuracy"
-        ))
-        pontuacao = sum(1 for c in celulas if any(t in c for t in termos))
-        if tem_ponto:
-            pontuacao += 3
-        if tem_limite:
-            pontuacao += 3
-        if tem_ponto and tem_limite and pontuacao > melhor_pontuacao:
-            melhor_linha, melhor_pontuacao = i, pontuacao
-    return melhor_linha
-
-
-def identificar_colunas_planilha(df):
-    """Reconhece nomes comuns de ponto de calibração e limite/desvio aceitável."""
-    termos = [
-        "ponto", "nominal", "referencia", "erro", "limite", "tolerancia",
-        "permissivel", "incerteza", "faixa", "desvio", "aceitavel", "maximo",
-        "admissivel", "exatidao", "mpe", "emp", "accuracy"
-    ]
-    linha_cab = encontrar_linha_cabecalho(df, termos)
-    if linha_cab is None:
-        return None
-
-    cabecalhos = []
-    for j, valor in enumerate(df.iloc[linha_cab].tolist()):
-        texto = str(valor).strip() if pd.notna(valor) else ""
-        cabecalhos.append(normalizar(texto) or f"coluna {j+1}")
-
-    termos_ponto = (
-        "ponto", "valor nominal", "referencia", "nominal", "faixa",
-        "setpoint", "ponto de calibracao", "valor de calibracao", "grandeza"
-    )
-    termos_limite = (
-        "limite permissivel", "limite permissivel", "erro permissivel", "erro maximo",
-        "erro permitido", "erro admissivel", "tolerancia", "limite de erro", "limite",
-        "tolerado", "desvio aceitavel", "desvio maximo", "desvio permitido",
-        "desvio admissivel", "erro maximo permitido", "erro maximo admissivel",
-        "exatidao", "mpe", "emp", "accuracy", "criterio de aceitacao"
-    )
-
-    col_ponto = None
-    col_limite = None
-    # Preferência por rótulos explícitos; não usa coluna de erro/resultado medido como limite.
-    for j, nome in enumerate(cabecalhos):
-        if col_ponto is None and any(t in nome for t in termos_ponto):
-            if not any(t in nome for t in ("erro", "incerteza", "desvio", "limite", "tolerancia")):
-                col_ponto = j
-        eh_limite = any(t in nome for t in termos_limite)
-        proibido = any(t in nome for t in (
-            "incerteza", "observacao", "observacoes", "resultado", "erro encontrado",
-            "erro medido", "erro calculado", "erro do instrumento", "desvio encontrado"
-        ))
-        if eh_limite and not proibido:
-            # Rótulos de limite explícitos têm preferência sobre cabeçalhos genéricos.
-            peso = 2 if any(t in nome for t in (
-                "desvio aceitavel", "limite permissivel", "erro permissivel", "erro permitido",
-                "erro maximo", "erro admissivel", "tolerancia", "criterio de aceitacao"
-            )) else 1
-            if col_limite is None:
-                col_limite = j
-                peso_limite = peso
-            elif peso > peso_limite:
-                col_limite = j
-                peso_limite = peso
-
-    # Evita considerar um cabeçalho de tabela de resultados como uma tabela de limites.
-    return {
-        "linha_cabecalho": linha_cab,
-        "cabecalhos": cabecalhos,
-        "col_ponto": col_ponto,
-        "col_limite": col_limite
-    }
-
-
-def extrair_limites_aba(df, nome_aba):
-    """Extrai pares ponto-limite reconhecidos; não escolhe colunas numéricas às cegas."""
-    estrutura = identificar_colunas_planilha(df)
-    if not estrutura:
-        return [], "Não identifiquei uma linha que contenha cabeçalho de ponto e de limite/desvio aceitável."
-
-    cp = estrutura["col_ponto"]
-    cl = estrutura["col_limite"]
-    if cp is None or cl is None:
-        return [], (
-            "Encontrei uma possível linha de cabeçalho, mas não consegui reconhecer com segurança "
-            "a coluna do ponto e/ou a coluna do limite/desvio aceitável. Verifique os títulos da aba."
-        )
-
-    limites = []
-    inicio = estrutura["linha_cabecalho"] + 1
-    for i in range(inicio, len(df)):
-        ponto = df.iat[i, cp] if cp < df.shape[1] else None
-        limite_original = df.iat[i, cl] if cl < df.shape[1] else None
-        n_ponto = numero_ptbr(ponto)
-        n_limite = numero_ptbr(limite_original)
-        if ponto is None or pd.isna(ponto) or n_ponto is None or n_limite is None:
-            continue
-        # A planilha pode mostrar limites como ±0,5 ou -0,5; o limite é uma magnitude positiva.
-        limites.append({
-            "ponto": str(ponto).strip(),
-            "chave_ponto": chave_ponto(ponto),
-            "limite": abs(n_limite),
-            "aba": nome_aba,
-            "linha": i + 1,
-            "cabecalho_ponto": estrutura["cabecalhos"][cp],
-            "cabecalho_limite": estrutura["cabecalhos"][cl],
-        })
-
-    if not limites:
-        return [], (
-            f"Reconheci as colunas '{estrutura['cabecalhos'][cp]}' e "
-            f"'{estrutura['cabecalhos'][cl]}', mas não encontrei pares numéricos nas linhas abaixo."
-        )
-    return limites, ""
-
-def termos_equipamento(metadados):
-    termos = []
-    for k in ("Equipamento", "Modelo", "Fabricante"):
-        valor = metadados.get(k, "")
-        if valor and len(normalizar(valor)) >= 3:
-            termos.extend([x.strip() for x in re.split(r"[;,/|]", valor)
-                           if len(normalizar(x)) >= 3])
-    return list(dict.fromkeys(termos))
-
-
-def sugerir_abas(excel_sheets, metadados):
-    termos = [normalizar(t) for t in termos_equipamento(metadados)]
-    pontuadas = []
-    for nome, df in excel_sheets.items():
-        nome_n = normalizar(nome)
-        texto = " ".join(normalizar(v) for v in
-                         df.fillna("").astype(str).values.flatten()[:3000])
-        score = sum(3 for t in termos if t and t in nome_n)
-        score += sum(1 for t in termos if t and t in texto)
-        pontuadas.append((score, nome))
-    pontuadas.sort(reverse=True)
-    if not pontuadas or pontuadas[0][0] == 0:
-        return list(excel_sheets.keys())
-    maior = pontuadas[0][0]
-    return [nome for score, nome in pontuadas if score == maior and score > 0]
-
-
-def associar_limites(pontos, limites):
-    """Associa pelo ponto numérico exato. Sem correspondência, fica pendente."""
-    mapa = {}
-    duplicados = set()
-    for lim in limites:
-        chave = lim["chave_ponto"]
-        if chave in mapa:
-            duplicados.add(chave)
-        else:
-            mapa[chave] = lim
-
-    for p in pontos:
-        chave = chave_ponto(p["Ponto / referência"])
-        # Só faz associação automática por ponto numérico identificável.
-        if numero_ptbr(p["Ponto / referência"]) is None:
-            p["Resultado"] = "PENDENTE"
-            p["Motivo"] = "O ponto do certificado não foi reconhecido como número para associação automática."
-            continue
-        if chave in duplicados:
-            p["Resultado"] = "PENDENTE"
-            p["Motivo"] = "Há pontos duplicados na planilha; confirme qual limite se aplica."
-            continue
-        lim = mapa.get(chave)
-        if not lim:
-            p["Resultado"] = "PENDENTE"
-            p["Motivo"] = "Ponto não encontrado na aba selecionada da RQ.COR.111."
-            continue
-
-        p["Limite permissível"] = lim["limite"]
-        p["Origem do limite"] = f"{lim['aba']} — linha {lim['linha']}"
-        p["Resultado"] = (
-            "APROVADO"
-            if p["|Erro| + |Incerteza|"] <= lim["limite"]
-            else "REPROVADO"
-        )
-        p["Motivo"] = (
-            f"Soma {fmt_num(p['|Erro| + |Incerteza|'])}; "
-            f"limite {fmt_num(lim['limite'])}; "
-            f"fonte: aba {lim['aba']}, linha {lim['linha']}."
-        )
+    return avaliar_pontos(pontos, equipamento)
 
 
 # ============================================================
@@ -420,8 +442,7 @@ def associar_limites(pontos, limites):
 # ============================================================
 
 def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
-                        pontos, status_geral, observacao, status_tecnico,
-                        tecnico="", data_aprovacao=""):
+                        pontos, status_geral, observacao):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=landscape(A4), rightMargin=24, leftMargin=24,
@@ -431,24 +452,18 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
     conteudo = [
         Paragraph("Relatório — Validador de Certificados", estilos["Title"]),
         Spacer(1, 8),
-        Paragraph(f"<b>Técnico:</b> {escape(nome_usuario or 'Não informado')}", estilos["Normal"]),
+        Paragraph(f"<b>Técnico responsável:</b> {escape(nome_usuario or 'Não informado')}", estilos["Normal"]),
         Paragraph(f"<b>Ordem de Serviço:</b> {escape(numero_os or 'Não informada')}", estilos["Normal"]),
         Paragraph(f"<b>Arquivo:</b> {escape(arquivo_nome)}", estilos["Normal"]),
         Paragraph(f"<b>Data de geração:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", estilos["Normal"]),
-        Paragraph(f"<b>Resultado automático:</b> {escape(status_geral)}", estilos["Normal"]),
-        Paragraph(f"<b>Decisão do técnico:</b> {escape(status_tecnico)}", estilos["Normal"]),
+        Paragraph(f"<b>Resultado:</b> {escape(status_geral)}", estilos["Normal"]),
+        Spacer(1, 8),
+        Paragraph("Dados identificados no certificado", estilos["Heading2"]),
     ]
-    if tecnico:
-        conteudo.append(Paragraph(f"<b>Técnico que liberou:</b> {escape(tecnico)}", estilos["Normal"]))
-    if data_aprovacao:
-        conteudo.append(Paragraph(f"<b>Data/hora da liberação:</b> {escape(data_aprovacao)}", estilos["Normal"]))
 
-    conteudo.extend([Spacer(1, 8), Paragraph("Dados identificados no certificado", estilos["Heading2"])])
     dados = [["Campo", "Valor"]]
     dados.extend([[escape(str(k)), escape(str(v))] for k, v in metadados.items()])
-    if len(dados) == 1:
-        dados.append(["Dados", "Nenhum campo foi identificado automaticamente."])
-    tab = Table(dados, colWidths=[130, 450], repeatRows=1)
+    tab = Table(dados, colWidths=[150, 430], repeatRows=1)
     tab.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
@@ -456,24 +471,24 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
         ("FONTSIZE", (0, 0), (-1, -1), 8),
     ]))
     conteudo.append(tab)
-    conteudo.extend([Spacer(1, 10), Paragraph("Pontos de medição e comparação", estilos["Heading2"])])
+    conteudo.extend([Spacer(1, 10), Paragraph("Pontos extraídos", estilos["Heading2"])])
 
     if pontos:
         dados_p = [[
             "Ponto", "Erro", "Incerteza", "Soma |erro|+|inc|",
-            "Limite RQ", "Resultado", "Origem"
+            "Limite RQ", "Resultado", "Motivo",
         ]]
         for p in pontos:
             dados_p.append([
-                escape(str(p.get("Ponto / referência", ""))[:25]),
+                escape(str(p.get("Ponto / referência", ""))[:22]),
                 fmt_num(p.get("Erro lido")),
                 fmt_num(p.get("Incerteza lida")),
                 fmt_num(p.get("|Erro| + |Incerteza|")),
                 fmt_num(p.get("Limite permissível")),
                 escape(str(p.get("Resultado", ""))),
-                escape(str(p.get("Origem do limite", "Não confirmado"))[:35]),
+                escape(str(p.get("Motivo", ""))[:70]),
             ])
-        tabp = Table(dados_p, colWidths=[80, 55, 65, 95, 60, 80, 115], repeatRows=1)
+        tabp = Table(dados_p, colWidths=[70, 50, 60, 85, 55, 70, 170], repeatRows=1)
         tabp.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
             ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
@@ -482,7 +497,10 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
         ]))
         conteudo.append(tabp)
     else:
-        conteudo.append(Paragraph("Nenhum ponto com erro e incerteza foi identificado.", estilos["Normal"]))
+        conteudo.append(Paragraph(
+            "Nenhum ponto com erro e incerteza foi identificado automaticamente.",
+            estilos["Normal"]
+        ))
 
     conteudo.extend([
         Spacer(1, 10),
@@ -495,13 +513,13 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 
 
 # ============================================================
-# INTERFACE STREAMLIT
+# INTERFACE
 # ============================================================
 
 st.title("📄 Validador de Certificados de Calibração")
 st.write(
-    "Envie a planilha RQ.COR.111 e os certificados. O sistema procura os pontos de calibração "
-    "e os limites/desvios aceitáveis pelos cabeçalhos da planilha e compara |erro| + |incerteza| com o limite."
+    "O sistema valida os certificados comparando |erro| + |incerteza| com os limites oficiais "
+    "da RQ.COR.111 (abrangendo todas as famílias de equipamentos médicos)."
 )
 
 col1, col2 = st.columns(2)
@@ -510,33 +528,11 @@ with col1:
 with col2:
     numero_os = st.text_input("Número da Ordem de Serviço (OS)", placeholder="Ex.: OS-2026-00125")
 
-rq_file = st.file_uploader("1. Envie a planilha RQ.COR.111 (.xlsx)", type=["xlsx"])
 pdf_files = st.file_uploader(
-    "2. Envie os certificados de calibração (.pdf)",
-    type=["pdf"], accept_multiple_files=True
+    "Envie os certificados de calibração (.pdf)",
+    type=["pdf"],
+    accept_multiple_files=True
 )
-
-excel_sheets = None
-if rq_file:
-    try:
-        excel_sheets = ler_excel(rq_file)
-        st.success(f"Planilha carregada: {len(excel_sheets)} aba(s) encontrada(s).")
-        with st.expander("Conferir conteúdo das abas da planilha"):
-            for nome_aba, df in excel_sheets.items():
-                st.write(f"**{nome_aba}** — {df.shape[0]} linhas × {df.shape[1]} colunas")
-                st.dataframe(df.head(12), use_container_width=True)
-                estrutura = identificar_colunas_planilha(df)
-                if estrutura:
-                    st.caption(
-                        f"Cabeçalho provável na linha {estrutura['linha_cabecalho'] + 1}. "
-                        f"Coluna do ponto: {estrutura['cabecalhos'][estrutura['col_ponto']] if estrutura['col_ponto'] is not None else 'não identificada'}. "
-                        f"Coluna do limite: {estrutura['cabecalhos'][estrutura['col_limite']] if estrutura['col_limite'] is not None else 'não identificada'}."
-                    )
-                else:
-                    st.caption("Cabeçalho de pontos/limites não reconhecido automaticamente nesta aba.")
-    except Exception as e:
-        st.error(f"Não foi possível ler a planilha. Confirme se é um arquivo .xlsx válido. Detalhe: {e}")
-        excel_sheets = None
 
 if pdf_files:
     for pdf_file in pdf_files:
@@ -544,144 +540,73 @@ if pdf_files:
         st.subheader(f"Certificado: {pdf_file.name}")
         try:
             texto, tabelas = extrair_texto_pdf(pdf_file)
-            metadados = extrair_metadados(texto)
-            pontos = extrair_pontos(tabelas_pdf_para_df(tabelas))
+            metadados = extrair_metadados(texto, pdf_file.name)
+            equipamento = metadados.get("Equipamento identificado", "")
+            pontos = extrair_pontos(tabelas_pdf_para_df(tabelas), equipamento)
 
-            if metadados:
-                st.write("**Dados identificados no certificado**")
-                st.json(metadados)
+            st.write("**Dados identificados no certificado**")
+            st.json(metadados)
+
+            if equipamento == "Não identificado com segurança":
+                st.warning(
+                    "Não consegui identificar o equipamento com segurança. "
+                    "Confira se o certificado tem um campo Equipamento/Instrumento "
+                    "ou se o nome do arquivo identifica o aparelho."
+                )
             else:
-                st.warning("Não consegui identificar os dados principais. O PDF pode ser digitalizado ou usar outros rótulos.")
+                st.info(f"Equipamento identificado: **{equipamento}**")
 
             if pontos:
-                st.write("**Pontos extraídos do certificado**")
+                st.write("**Pontos extraídos e cálculos dinâmicos**")
                 st.dataframe(pd.DataFrame(pontos), use_container_width=True)
             else:
                 st.warning(
-                    "Não encontrei tabela com colunas reconhecíveis de erro e incerteza. "
-                    "Se o PDF for digitalizado, será necessário OCR; confira se o texto pode ser selecionado."
+                    "Não encontrei uma tabela com colunas reconhecíveis de erro e incerteza. "
+                    "Se o PDF for digitalizado, pode ser necessário OCR."
                 )
 
-            if excel_sheets and pontos:
-                abas_sugeridas = sugerir_abas(excel_sheets, metadados)
-                abas = list(excel_sheets.keys())
-                aba_padrao = abas_sugeridas[0] if len(abas_sugeridas) == 1 else abas[0]
-                aba_escolhida = st.selectbox(
-                    "Aba da RQ.COR.111 para este equipamento",
-                    abas,
-                    index=abas.index(aba_padrao),
-                    key=f"aba_{pdf_file.name}"
-                )
-                st.caption("Sugestão automática de aba: " + (", ".join(abas_sugeridas) if abas_sugeridas else "nenhuma"))
-
-                limites, erro_leitura = extrair_limites_aba(excel_sheets[aba_escolhida], aba_escolhida)
-                if limites:
-                    associar_limites(pontos, limites)
-                    st.success(f"Localizei {len(limites)} par(es) ponto/limite na aba {aba_escolhida}.")
-                    st.caption(
-                        f"Comparação usando: ponto = '{limites[0]['cabecalho_ponto']}' | "
-                        f"limite = '{limites[0]['cabecalho_limite']}'. "
-                        "Regra: módulo do erro + módulo da incerteza ≤ limite."
-                    )
-                else:
-                    for p in pontos:
-                        p["Resultado"] = "PENDENTE"
-                        p["Motivo"] = erro_leitura
-                    st.warning(
-                        f"Não consegui extrair pontos e limites automaticamente desta aba: {erro_leitura} "
-                        "Confira a prévia da planilha acima; não será escolhido um limite por adivinhação."
-                    )
-            else:
-                for p in pontos:
-                    p["Resultado"] = "PENDENTE"
-                    p["Motivo"] = "Carregue a planilha RQ.COR.111 para comparar os limites."
-
-            if not pontos:
-                status_geral = "PENDENTE DE ANÁLISE"
-            elif any(p["Resultado"] == "REPROVADO" for p in pontos):
-                status_geral = "REPROVADO"
-            elif all(p["Resultado"] == "APROVADO" for p in pontos):
-                status_geral = "APROVADO"
-            else:
-                status_geral = "PENDENTE DE ANÁLISE"
-
+            status_geral = calcular_status_geral(pontos, equipamento)
             st.write("### Resultado automático")
-            if status_geral == "APROVADO":
-                st.success("APROVADO — todos os pontos encontrados foram comparados e estão dentro dos limites.")
-            elif status_geral == "REPROVADO":
-                st.error("REPROVADO — pelo menos um ponto ultrapassou o limite permissível.")
+            if status_geral.startswith("APROVADO"):
+                st.success(status_geral)
+            elif status_geral.startswith("REPROVADO"):
+                st.error(status_geral)
             else:
-                st.warning("PENDENTE DE ANÁLISE — há pontos ou limites que não foram associados com segurança.")
-
-            if pontos:
-                st.dataframe(pd.DataFrame(pontos), use_container_width=True)
-
-            chave = re.sub(r"[^A-Za-z0-9_-]", "_", pdf_file.name)
-            chave_liberacao = f"liberacao_{chave}"
-            chave_data = f"data_liberacao_{chave}"
-            chave_tecnico_liberacao = f"tecnico_liberacao_{chave}"
-
-            if chave_liberacao not in st.session_state:
-                st.session_state[chave_liberacao] = False
+                st.warning(status_geral)
 
             st.write("### Liberação técnica")
-            pode_liberar = (
-                status_geral == "APROVADO"
-                and bool(nome_usuario.strip())
-                and bool(numero_os.strip())
-            )
-
-            if status_geral != "APROVADO":
-                st.info("A liberação fica bloqueada até todos os pontos serem aprovados.")
-            elif not nome_usuario.strip() or not numero_os.strip():
-                st.info("Preencha o nome do técnico e o número da OS para habilitar a liberação.")
-
-            if st.button(
-                "✅ Liberar equipamento",
-                key=f"botao_liberar_{chave}",
-                disabled=not pode_liberar
-            ):
-                st.session_state[chave_liberacao] = True
-                st.session_state[chave_data] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                st.session_state[chave_tecnico_liberacao] = nome_usuario.strip()
-
-            if st.session_state[chave_liberacao] and status_geral == "APROVADO":
-                st.success(
-                    f"Liberação registrada nesta sessão por {st.session_state.get(chave_tecnico_liberacao, nome_usuario)} "
-                    f"em {st.session_state.get(chave_data, '')}."
+            if status_geral.startswith("APROVADO") and nome_usuario.strip() and numero_os.strip():
+                confirmar = st.checkbox(
+                    "Conferi os dados extraídos, o equipamento e os limites calculados.",
+                    key=f"conferir_{re.sub(r'[^A-Za-z0-9]', '_', pdf_file.name)}"
                 )
-                status_tecnico = "LIBERADO PELO TÉCNICO"
-                tecnico_pdf = st.session_state.get(chave_tecnico_liberacao, nome_usuario)
-                data_pdf = st.session_state.get(chave_data, "")
-            elif status_geral == "REPROVADO":
-                status_tecnico, tecnico_pdf, data_pdf = "BLOQUEADO — resultado reprovado", "", ""
-            elif status_geral != "APROVADO":
-                status_tecnico, tecnico_pdf, data_pdf = "BLOQUEADO — análise pendente", "", ""
+                if confirmar:
+                    st.success("Conferência registrada nesta sessão. Revise o relatório antes de liberar o equipamento.")
+                else:
+                    st.info("Marque a conferência após revisar os dados extraídos.")
             else:
-                status_tecnico, tecnico_pdf, data_pdf = "AGUARDANDO LIBERAÇÃO DO TÉCNICO", "", ""
+                st.info("A liberação não está disponível: é necessário que todos os pontos estejam aprovados e que o técnico e a OS estejam preenchidos.")
 
             observacao = (
-                "Regra aplicada: |erro| + |incerteza| <= limite permissível localizado na RQ.COR.111. "
-                "A associação automática depende do reconhecimento correto dos cabeçalhos, pontos, "
-                "unidades e limites da planilha e do certificado. Revise a correspondência antes de usar "
-                "este relatório como registro técnico oficial."
+                "Os resultados foram calculados aplicando as regras oficiais de desvio aceitável "
+                "da RQ.COR.111 para todas as famílias de equipamentos médicos."
             )
             relatorio = gerar_relatorio_pdf(
-                nome_usuario, numero_os, pdf_file.name, metadados, pontos,
-                status_geral, observacao, status_tecnico, tecnico_pdf, data_pdf
+                nome_usuario, numero_os, pdf_file.name, metadados,
+                pontos, status_geral, observacao
             )
+            nome_seguro = re.sub(r"[^A-Za-z0-9_-]", "_", pdf_file.name)
             st.download_button(
                 "📥 Baixar relatório PDF",
                 data=relatorio,
-                file_name=f"relatorio_{chave}.pdf",
+                file_name=f"relatorio_{nome_seguro}.pdf",
                 mime="application/pdf",
-                key=f"relatorio_{chave}"
+                key=f"relatorio_{nome_seguro}"
             )
         except Exception as e:
             st.error(f"Erro ao processar este certificado: {e}")
 
 st.divider()
 st.caption(
-    "Versão de teste. A associação automática depende do formato real da RQ.COR.111 e das tabelas dos PDFs. "
-    "Pontos sem correspondência inequívoca ficam pendentes; confira os resultados antes de qualquer liberação oficial."
+    "Validador configurado para todas as famílias de equipamentos da RQ.COR.111."
 )
