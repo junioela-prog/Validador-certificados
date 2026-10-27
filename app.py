@@ -310,6 +310,9 @@ def localizar_colunas_resultado(df):
     nomes = {c: normalizar(c) for c in df.columns}
     col_erro = next((c for c, n in nomes.items() if re.search(r"\berro\b", n)), None)
     col_inc = next((c for c, n in nomes.items() if "incerteza" in n), None)
+    
+    # Identifica a coluna de unidade do PDF
+    col_unidade = next((c for c, n in nomes.items() if "unidade" in n), None)
 
     termos_ponto = (
         "ponto", "referencia", "nominal", "setpoint",
@@ -331,27 +334,29 @@ def localizar_colunas_resultado(df):
              and "instrumento" not in n),
             None
         )
-    return col_erro, col_inc, col_ponto
+    return col_erro, col_inc, col_ponto, col_unidade
 
 
 def obter_limite(equipamento, ponto_texto, grandeza=""):
     """
     Calcula o limite oficial dinamicamente com base nas regras da RQ.COR.111
-    e nos parâmetros reais extraídos do certificado.
+    e na unidade extraída do certificado.
     """
     config = LIMITES_EQUIPAMENTOS.get(equipamento)
     ponto_num = numero_ptbr(ponto_texto)
     g_norm = normalizar(grandeza)
 
-    # Tratamento dinâmico por grandeza identificada no certificado
-    if "saturacao" in g_norm or "spo2" in g_norm:
+    # Tratamento dinâmico baseado na unidade/grandeza lida na tabela
+    if "%" in g_norm or "spo2" in g_norm:
         if ponto_num is not None:
             return abs(ponto_num) * (3.0 / 100.0)
         return 3.0
     
-    if "frequencia" in g_norm or "bpm" in g_norm:
-        if "oximetro" in normalizar(equipamento):
-            return 5.0
+    if "bpm" in g_norm or "frequencia" in g_norm:
+        return 5.0
+
+    if "c" in g_norm or "°c" in g_norm or "temp" in g_norm:
+        return 1.5 if "termometro" in normalizar(equipamento) else 0.8
 
     if not config:
         return None
@@ -411,40 +416,11 @@ def calcular_status_geral(pontos, equipamento):
 def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
     pontos = []
     
-    # Divide o texto do PDF por blocos ou linhas para capturar o título da grandeza exata de cada tabela
-    linhas_texto = [x.strip() for x in texto_pdf.splitlines() if x.strip()]
-    
     for df in tabelas_df:
-        col_erro, col_inc, col_ponto = localizar_colunas_resultado(df)
+        col_erro, col_inc, col_ponto, col_unidade = localizar_colunas_resultado(df)
         if col_erro is None or col_inc is None:
             continue
             
-        grandeza_atual = equipamento  # Assume o nome do equipamento como base se não achar título específico
-        
-        # Procura no texto acima da tabela ou nas linhas o nome da grandeza real do certificado
-        texto_tabela_unido = " ".join([" ".join(str(v) for v in row.values) for _, row in df.iterrows()])
-        t_unido_norm = normalizar(texto_tabela_unido)
-        
-        # Varre o texto global do PDF para ver qual seção precede esta tabela
-        texto_pdf_norm = normalizar(texto_pdf)
-        
-        # Detecção limpa baseada no conteúdo real do PDF analisado
-        if "frequencia cardiaca" in t_unido_norm or "oximetria" in t_unido_norm or "bpm" in t_unido_norm:
-            grandeza_atual = "Frequência Cardíaca da Oximetria"
-        elif "saturacao" in t_unido_norm or "spo2" in t_unido_norm:
-            grandeza_atual = "Saturação do Oxigênio no Sangue [SpO2]"
-        elif "temperatura" in t_unido_norm or "celsius" in t_unido_norm or "c" in t_unido_norm:
-            grandeza_atual = "Temperatura"
-        elif "pressao" in t_unido_norm or "pni" in t_unido_norm or "mmhg" in t_unido_norm:
-            grandeza_atual = "Pressão Arterial (PNI)"
-        else:
-            # Tenta buscar nas linhas do texto do PDF a grandeza mais próxima
-            for linha in linhas_texto:
-                l_norm = normalizar(linha)
-                if any(term in l_norm for term in ["frequencia", "saturacao", "temperatura", "pressao", "escala", "parametro", "spo2"]):
-                    grandeza_atual = linha[:50]
-                    break
-
         for idx, row in df.iterrows():
             erro = numero_ptbr(row.get(col_erro))
             incerteza = numero_ptbr(row.get(col_inc))
@@ -454,10 +430,15 @@ def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
             ponto = str(row.get(col_ponto, "")).strip() if row.get(col_ponto) is not None else ""
             if ponto.lower() == "nan":
                 ponto = ""
+
+            # Captura a grandeza diretamente da coluna "Unidade" do PDF
+            grandeza_lida = str(row.get(col_unidade, "")).strip() if col_unidade and row.get(col_unidade) is not None else ""
+            if not grandeza_lida or grandeza_lida.lower() == "nan":
+                grandeza_lida = equipamento
                 
             pontos.append({
                 "ID": len(pontos) + 1,
-                "Grandeza": grandeza_atual,
+                "Grandeza": grandeza_lida,
                 "Ponto / referência": ponto,
                 "Erro lido": erro,
                 "Incerteza lida": abs(incerteza),
@@ -550,7 +531,7 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 
 st.title("📄 Validador de Certificados de Calibração")
 st.write(
-    "O sistema valida os certificados extraindo dinamicamente as grandezas, os pontos de referência "
+    "O sistema valida os certificados extraindo dinamicamente as grandezas da coluna 'Unidade' do PDF "
     "e comparando |erro| + |incerteza| com os limites oficiais da RQ.COR.111."
 )
 
@@ -613,7 +594,7 @@ if pdf_files:
             else:
                 st.info("A liberação exige aprovação de todos os pontos, nome do técnico e OS.")
 
-            observacao = "Validação dinâmica aplicada conforme os limites oficiais da RQ.COR.111."
+            observacao = "Validação dinâmica aplicada conforme a unidade e os limites oficiais da RQ.COR.111."
             relatorio = gerar_relatorio_pdf(
                 nome_usuario, numero_os, pdf_file.name, metadados,
                 pontos, status_geral, observacao
