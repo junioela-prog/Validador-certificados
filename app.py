@@ -378,7 +378,6 @@ def avaliar_pontos(pontos, equipamento):
     for ponto in pontos:
         limite, origem = obter_limite(equipamento, ponto.get("Ponto / referência", ""))
         ponto["Limite permissível"] = limite
-        ponto["Origem do limite"] = origem
         valor = ponto.get("|Erro| + |Incerteza|")
         if limite is None:
             ponto["Resultado"] = "PENDENTE"
@@ -408,32 +407,65 @@ def calcular_status_geral(pontos, equipamento):
     return "PENDENTE — existem pontos sem limite oficial configurado"
 
 
-def extrair_pontos(tabelas_df, equipamento):
+def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
     pontos = []
+    
+    # Mapear títulos de grandezas encontrados no texto do PDF para associar aos pontos
+    linhas_texto = [x.strip() for x in texto_pdf.splitlines() if x.strip()]
+    
     for df in tabelas_df:
         col_erro, col_inc, col_ponto = localizar_colunas_resultado(df)
         if col_erro is None or col_inc is None:
             continue
-        for _, row in df.iterrows():
+            
+        # Identificar grandeza com base no contexto das tabelas/texto
+        grandeza_atual = "Parâmetro Geral"
+        for idx, row in df.iterrows():
+            # Tenta inferir a grandeza pelo conteúdo ou linhas anteriores
+            texto_linha = " ".join([str(val) for val in row.values if val])
+            
+            # Detecção inteligente baseada nos termos da imagem (Frequência Cardíaca, SpO2, etc)
+            t_norm = normalizar(texto_linha)
+            if "frequencia cardiaca" in t_norm or "oximetria" in t_norm:
+                grandeza_atual = "Frequência Cardíaca da Oximetria"
+            elif "saturacao" in t_norm or "spo2" in t_norm:
+                grandeza_atual = "Saturação do Oxigênio no Sangue [SpO2]"
+            elif "temperatura" in t_norm:
+                grandeza_atual = "Temperatura"
+            elif "pressao" in t_norm or "pni" in t_norm:
+                grandeza_atual = "Pressão Arterial (PNI)"
+
             erro = numero_ptbr(row.get(col_erro))
             incerteza = numero_ptbr(row.get(col_inc))
             if erro is None or incerteza is None:
                 continue
+                
             ponto = str(row.get(col_ponto, "")).strip() if row.get(col_ponto) is not None else ""
             if ponto.lower() == "nan":
                 ponto = ""
+                
             pontos.append({
                 "ID": len(pontos) + 1,
+                "Grandeza": grandeza_atual,
                 "Tabela PDF": df.attrs.get("numero_tabela_pdf", ""),
                 "Ponto / referência": ponto,
                 "Erro lido": erro,
                 "Incerteza lida": abs(incerteza),
                 "|Erro| + |Incerteza|": abs(erro) + abs(incerteza),
                 "Limite permissível": None,
-                "Origem do limite": "Limite não avaliado",
                 "Resultado": "PENDENTE",
                 "Motivo": "Aguardando aplicação dos limites configurados no código.",
             })
+            
+    # Se não achou grandeza específica nas linhas, busca no texto bruto geral do certificado
+    if pontos and all(p["Grandeza"] == "Parâmetro Geral" for p in pontos):
+        t_geral_norm = normalizar(texto_pdf)
+        if "frequencia cardiaca" in t_geral_norm and "spo2" in t_geral_norm:
+            # Divide os pontos proporcionalmente se for oxímetro misto
+            metade = len(pontos) // 2
+            for i, p in enumerate(pontos):
+                p["Grandeza"] = "Frequência Cardíaca da Oximetria" if i < metade else "Saturação do Oxigênio no Sangue [SpO2]"
+
     return avaliar_pontos(pontos, equipamento)
 
 
@@ -475,20 +507,21 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 
     if pontos:
         dados_p = [[
-            "Ponto", "Erro", "Incerteza", "Soma |erro|+|inc|",
+            "Grandeza", "Ponto", "Erro", "Incerteza", "Soma |erro|+|inc|",
             "Limite RQ", "Resultado", "Motivo",
         ]]
         for p in pontos:
             dados_p.append([
-                escape(str(p.get("Ponto / referência", ""))[:22]),
+                escape(str(p.get("Grandeza", ""))[:25]),
+                escape(str(p.get("Ponto / referência", ""))[:18]),
                 fmt_num(p.get("Erro lido")),
                 fmt_num(p.get("Incerteza lida")),
                 fmt_num(p.get("|Erro| + |Incerteza|")),
                 fmt_num(p.get("Limite permissível")),
                 escape(str(p.get("Resultado", ""))),
-                escape(str(p.get("Motivo", ""))[:70]),
+                escape(str(p.get("Motivo", ""))[:50]),
             ])
-        tabp = Table(dados_p, colWidths=[70, 50, 60, 85, 55, 70, 170], repeatRows=1)
+        tabp = Table(dados_p, colWidths=[110, 60, 45, 55, 75, 55, 65, 115], repeatRows=1)
         tabp.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
             ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
@@ -542,7 +575,7 @@ if pdf_files:
             texto, tabelas = extrair_texto_pdf(pdf_file)
             metadados = extrair_metadados(texto, pdf_file.name)
             equipamento = metadados.get("Equipamento identificado", "")
-            pontos = extrair_pontos(tabelas_pdf_para_df(tabelas), equipamento)
+            pontos = extrair_pontos(tabelas_pdf_para_df(tabelas), equipamento, texto)
 
             st.write("**Dados identificados no certificado**")
             st.json(metadados)
@@ -558,7 +591,9 @@ if pdf_files:
 
             if pontos:
                 st.write("**Pontos extraídos e cálculos dinâmicos**")
-                st.dataframe(pd.DataFrame(pontos), use_container_width=True)
+                # Remove a coluna 'Origem do limite' para exibição limpa na tela e na tabela
+                df_exibicao = pd.DataFrame(pontos).drop(columns=["Origem do limite"], errors="ignore")
+                st.dataframe(df_exibicao, use_container_width=True)
             else:
                 st.warning(
                     "Não encontrei uma tabela com colunas reconhecíveis de erro e incerteza. "
