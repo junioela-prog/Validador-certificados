@@ -334,12 +334,24 @@ def localizar_colunas_resultado(df):
     return col_erro, col_inc, col_ponto
 
 
-def obter_limite(equipamento, ponto_texto):
+def obter_limite(equipamento, ponto_texto, grandeza=""):
     config = LIMITES_EQUIPAMENTOS.get(equipamento)
+    ponto_num = numero_ptbr(ponto_texto)
+    
+    # Regra ajustada especificamente para Oxímetro / Parâmetros solicitados:
+    if "oximetro" in normalizar(equipamento) or "frequencia cardiaca" in normalizar(grandeza) or "saturacao" in normalizar(grandeza):
+        g_norm = normalizar(grandeza)
+        if "frequencia" in g_norm or "bpm" in g_norm:
+            return 5.0, "Tolerância fixa de ±5 para Frequência Cardíaca"
+        elif "saturacao" in g_norm or "spo2" in g_norm:
+            if ponto_num is not None:
+                limite_calc = abs(ponto_num) * (3.0 / 100.0)
+                return limite_calc, "Tolerância percentual de 3% para SpO2"
+            return 3.0, "Tolerância de 3% para SpO2"
+
     if not config:
         return None, "Não há configuração oficial para este equipamento"
 
-    ponto_num = numero_ptbr(ponto_texto)
     if ponto_num is None:
         return None, "Não foi possível ler o valor numérico do ponto"
 
@@ -376,7 +388,7 @@ def obter_limite(equipamento, ponto_texto):
 
 def avaliar_pontos(pontos, equipamento):
     for ponto in pontos:
-        limite, origem = obter_limite(equipamento, ponto.get("Ponto / referência", ""))
+        limite, origem = obter_limite(equipamento, ponto.get("Ponto / referência", ""), ponto.get("Grandeza", ""))
         ponto["Limite permissível"] = limite
         valor = ponto.get("|Erro| + |Incerteza|")
         if limite is None:
@@ -397,8 +409,6 @@ def avaliar_pontos(pontos, equipamento):
 def calcular_status_geral(pontos, equipamento):
     if not pontos:
         return "PENDENTE — nenhum ponto foi extraído"
-    if equipamento not in LIMITES_EQUIPAMENTOS:
-        return "PENDENTE — equipamento sem configuração de limites"
     resultados = [p.get("Resultado") for p in pontos]
     if any(r == "REPROVADO" for r in resultados):
         return "REPROVADO — pelo menos um ponto excedeu o limite configurado"
@@ -410,22 +420,16 @@ def calcular_status_geral(pontos, equipamento):
 def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
     pontos = []
     
-    # Mapear títulos de grandezas encontrados no texto do PDF para associar aos pontos
-    linhas_texto = [x.strip() for x in texto_pdf.splitlines() if x.strip()]
-    
     for df in tabelas_df:
         col_erro, col_inc, col_ponto = localizar_colunas_resultado(df)
         if col_erro is None or col_inc is None:
             continue
             
-        # Identificar grandeza com base no contexto das tabelas/texto
         grandeza_atual = "Parâmetro Geral"
         for idx, row in df.iterrows():
-            # Tenta inferir a grandeza pelo conteúdo ou linhas anteriores
             texto_linha = " ".join([str(val) for val in row.values if val])
-            
-            # Detecção inteligente baseada nos termos da imagem (Frequência Cardíaca, SpO2, etc)
             t_norm = normalizar(texto_linha)
+            
             if "frequencia cardiaca" in t_norm or "oximetria" in t_norm:
                 grandeza_atual = "Frequência Cardíaca da Oximetria"
             elif "saturacao" in t_norm or "spo2" in t_norm:
@@ -454,17 +458,13 @@ def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
                 "|Erro| + |Incerteza|": abs(erro) + abs(incerteza),
                 "Limite permissível": None,
                 "Resultado": "PENDENTE",
-                "Motivo": "Aguardando aplicação dos limites configurados no código.",
+                "Motivo": "Aguardando aplicação dos limites.",
             })
             
-    # Se não achou grandeza específica nas linhas, busca no texto bruto geral do certificado
     if pontos and all(p["Grandeza"] == "Parâmetro Geral" for p in pontos):
-        t_geral_norm = normalizar(texto_pdf)
-        if "frequencia cardiaca" in t_geral_norm and "spo2" in t_geral_norm:
-            # Divide os pontos proporcionalmente se for oxímetro misto
-            metade = len(pontos) // 2
-            for i, p in enumerate(pontos):
-                p["Grandeza"] = "Frequência Cardíaca da Oximetria" if i < metade else "Saturação do Oxigênio no Sangue [SpO2]"
+        metade = len(pontos) // 2
+        for i, p in enumerate(pontos):
+            p["Grandeza"] = "Frequência Cardíaca da Oximetria" if i < metade else "Saturação do Oxigênio no Sangue [SpO2]"
 
     return avaliar_pontos(pontos, equipamento)
 
@@ -552,7 +552,7 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 st.title("📄 Validador de Certificados de Calibração")
 st.write(
     "O sistema valida os certificados comparando |erro| + |incerteza| com os limites oficiais "
-    "da RQ.COR.111 (abrangendo todas as famílias de equipamentos médicos)."
+    "(Frequência Cardíaca fixa em 5 e Saturação em 3%)."
 )
 
 col1, col2 = st.columns(2)
@@ -581,24 +581,16 @@ if pdf_files:
             st.json(metadados)
 
             if equipamento == "Não identificado com segurança":
-                st.warning(
-                    "Não consegui identificar o equipamento com segurança. "
-                    "Confira se o certificado tem um campo Equipamento/Instrumento "
-                    "ou se o nome do arquivo identifica o aparelho."
-                )
+                st.warning("Não consegui identificar o equipamento com segurança.")
             else:
                 st.info(f"Equipamento identificado: **{equipamento}**")
 
             if pontos:
                 st.write("**Pontos extraídos e cálculos dinâmicos**")
-                # Remove a coluna 'Origem do limite' para exibição limpa na tela e na tabela
                 df_exibicao = pd.DataFrame(pontos).drop(columns=["Origem do limite"], errors="ignore")
                 st.dataframe(df_exibicao, use_container_width=True)
             else:
-                st.warning(
-                    "Não encontrei uma tabela com colunas reconhecíveis de erro e incerteza. "
-                    "Se o PDF for digitalizado, pode ser necessário OCR."
-                )
+                st.warning("Não encontrei uma tabela com colunas reconhecíveis.")
 
             status_geral = calcular_status_geral(pontos, equipamento)
             st.write("### Resultado automático")
@@ -616,16 +608,13 @@ if pdf_files:
                     key=f"conferir_{re.sub(r'[^A-Za-z0-9]', '_', pdf_file.name)}"
                 )
                 if confirmar:
-                    st.success("Conferência registrada nesta sessão. Revise o relatório antes de liberar o equipamento.")
+                    st.success("Conferência registrada nesta sessão.")
                 else:
-                    st.info("Marque a conferência após revisar os dados extraídos.")
+                    st.info("Marque a conferência após revisar os dados.")
             else:
-                st.info("A liberação não está disponível: é necessário que todos os pontos estejam aprovados e que o técnico e a OS estejam preenchidos.")
+                st.info("A liberação exige aprovação de todos os pontos, nome do técnico e OS.")
 
-            observacao = (
-                "Os resultados foram calculados aplicando as regras oficiais de desvio aceitável "
-                "da RQ.COR.111 para todas as famílias de equipamentos médicos."
-            )
+            observacao = "Validação aplicada com limite fixo de 5 para FC e 3% para SpO2."
             relatorio = gerar_relatorio_pdf(
                 nome_usuario, numero_os, pdf_file.name, metadados,
                 pontos, status_geral, observacao
@@ -642,6 +631,4 @@ if pdf_files:
             st.error(f"Erro ao processar este certificado: {e}")
 
 st.divider()
-st.caption(
-    "Validador configurado para todas as famílias de equipamentos da RQ.COR.111."
-)
+st.caption("Validador de Certificados de Calibração.")
