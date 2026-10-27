@@ -338,71 +338,56 @@ def obter_limite(equipamento, ponto_texto, grandeza=""):
     config = LIMITES_EQUIPAMENTOS.get(equipamento)
     ponto_num = numero_ptbr(ponto_texto)
     
-    # Regra ajustada especificamente para Oxímetro / Parâmetros solicitados:
     if "oximetro" in normalizar(equipamento) or "frequencia cardiaca" in normalizar(grandeza) or "saturacao" in normalizar(grandeza):
         g_norm = normalizar(grandeza)
         if "frequencia" in g_norm or "bpm" in g_norm:
-            return 5.0, "Tolerância fixa de ±5 para Frequência Cardíaca"
+            return 5.0
         elif "saturacao" in g_norm or "spo2" in g_norm:
             if ponto_num is not None:
-                limite_calc = abs(ponto_num) * (3.0 / 100.0)
-                return limite_calc, "Tolerância percentual de 3% para SpO2"
-            return 3.0, "Tolerância de 3% para SpO2"
+                return abs(ponto_num) * (3.0 / 100.0)
+            return 3.0
 
     if not config:
-        return None, "Não há configuração oficial para este equipamento"
+        return None
 
     if ponto_num is None:
-        return None, "Não foi possível ler o valor numérico do ponto"
+        return None
 
     if "percentual" in config:
         p = config["percentual"]
-        limite_calc = abs(ponto_num) * (p / 100.0)
-        return limite_calc, f"Tolerância percentual de {p}%"
+        return abs(ponto_num) * (p / 100.0)
 
     if "limite_absoluto" in config:
-        val = config["limite_absoluto"]
-        return val, f"Tolerância absoluta de ±{val}"
+        return config["limite_absoluto"]
 
     tipo = config.get("tipo_padrao")
     if tipo in ["misto_oximetro", "monitor_multiparamentros", "monitor_triagem"]:
         txt_lower = normalizar(ponto_texto)
-        
         if "temp" in txt_lower or (35 <= ponto_num <= 42 and "bpm" not in txt_lower and "pni" not in txt_lower):
-            return 0.8, "Tolerância absoluta de ±0.8 °C"
-            
+            return 0.8
         if "fr" in txt_lower or "respiracao" in txt_lower:
-            return 3.0, "Tolerância absoluta de ±3 BRPM"
-
+            return 3.0
         if "bpm" in txt_lower or "frequencia" in txt_lower or "pni" in txt_lower or "sistolica" in txt_lower or "diastolica" in txt_lower:
-            return 5.0, "Tolerância absoluta de ±5"
-
+            return 5.0
         if ponto_num <= 100 and "bpm" not in txt_lower:
-            limite_calc = abs(ponto_num) * (3.0 / 100.0)
-            return limite_calc, "Tolerância percentual de 3% (SpO2)"
+            return abs(ponto_num) * (3.0 / 100.0)
         else:
-            return 5.0, "Tolerância absoluta padrão de ±5"
+            return 5.0
 
-    return None, "Regra de tolerância não definida"
+    return None
 
 
 def avaliar_pontos(pontos, equipamento):
     for ponto in pontos:
-        limite, origem = obter_limite(equipamento, ponto.get("Ponto / referência", ""), ponto.get("Grandeza", ""))
-        ponto["Limite permissível"] = limite
+        limite = obter_limite(equipamento, ponto.get("Ponto / referência", ""), ponto.get("Grandeza", ""))
+        ponto["Limite RQ"] = limite
         valor = ponto.get("|Erro| + |Incerteza|")
-        if limite is None:
+        if limite is None or valor is None:
             ponto["Resultado"] = "PENDENTE"
-            ponto["Motivo"] = "Não foi possível calcular o limite para este ponto."
-        elif valor is None:
-            ponto["Resultado"] = "PENDENTE"
-            ponto["Motivo"] = "Não foi possível calcular erro + incerteza."
         elif valor <= limite:
             ponto["Resultado"] = "APROVADO"
-            ponto["Motivo"] = "Soma do erro absoluto e da incerteza dentro do limite configurado."
         else:
             ponto["Resultado"] = "REPROVADO"
-            ponto["Motivo"] = "Soma do erro absoluto e da incerteza acima do limite configurado."
     return pontos
 
 
@@ -456,9 +441,8 @@ def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
                 "Erro lido": erro,
                 "Incerteza lida": abs(incerteza),
                 "|Erro| + |Incerteza|": abs(erro) + abs(incerteza),
-                "Limite permissível": None,
+                "Limite RQ": None,
                 "Resultado": "PENDENTE",
-                "Motivo": "Aguardando aplicação dos limites.",
             })
             
     if pontos and all(p["Grandeza"] == "Parâmetro Geral" for p in pontos):
@@ -508,20 +492,19 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
     if pontos:
         dados_p = [[
             "Grandeza", "Ponto", "Erro", "Incerteza", "Soma |erro|+|inc|",
-            "Limite RQ", "Resultado", "Motivo",
+            "Limite RQ", "Resultado",
         ]]
         for p in pontos:
             dados_p.append([
-                escape(str(p.get("Grandeza", ""))[:25]),
-                escape(str(p.get("Ponto / referência", ""))[:18]),
+                escape(str(p.get("Grandeza", ""))[:30]),
+                escape(str(p.get("Ponto / referência", ""))[:20]),
                 fmt_num(p.get("Erro lido")),
                 fmt_num(p.get("Incerteza lida")),
                 fmt_num(p.get("|Erro| + |Incerteza|")),
-                fmt_num(p.get("Limite permissível")),
+                fmt_num(p.get("Limite RQ")),
                 escape(str(p.get("Resultado", ""))),
-                escape(str(p.get("Motivo", ""))[:50]),
             ])
-        tabp = Table(dados_p, colWidths=[110, 60, 45, 55, 75, 55, 65, 115], repeatRows=1)
+        tabp = Table(dados_p, colWidths=[130, 70, 50, 60, 90, 65, 80], repeatRows=1)
         tabp.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
             ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
@@ -587,7 +570,8 @@ if pdf_files:
 
             if pontos:
                 st.write("**Pontos extraídos e cálculos dinâmicos**")
-                df_exibicao = pd.DataFrame(pontos).drop(columns=["Origem do limite"], errors="ignore")
+                # Remove colunas desnecessárias para exibição limpa
+                df_exibicao = pd.DataFrame(pontos).drop(columns=["ID", "Tabela PDF"], errors="ignore")
                 st.dataframe(df_exibicao, use_container_width=True)
             else:
                 st.warning("Não encontrei uma tabela com colunas reconhecíveis.")
