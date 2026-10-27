@@ -14,7 +14,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 st.set_page_config(page_title="Validador de Certificados", page_icon="📄", layout="wide")
 
 # ============================================================
-# TABELA DE TOLERÂNCIAS OFICIAIS (RQ.COR.111 - 20 Abas)
+# TABELA DE TOLERÂNCIAS OFICIAIS (RQ.COR.111)
 # ============================================================
 LIMITES_EQUIPAMENTOS = {
     "Oxímetro de pulso": {
@@ -335,19 +335,23 @@ def localizar_colunas_resultado(df):
 
 
 def obter_limite(equipamento, ponto_texto, grandeza=""):
+    """
+    Calcula o limite oficial dinamicamente com base nas regras da RQ.COR.111
+    e nos parâmetros reais extraídos do certificado.
+    """
     config = LIMITES_EQUIPAMENTOS.get(equipamento)
-    ponto_num = numeric_val = numero_ptbr(ponto_texto)
-    
+    ponto_num = numero_ptbr(ponto_texto)
     g_norm = normalizar(grandeza)
-    eq_norm = normalizar(equipamento)
 
-    # Regras específicas de grandezas (Oxímetro / Monitores)
-    if "frequencia cardiaca" in g_norm or "bpm" in g_norm:
-        return 5.0
-    elif "saturacao" in g_norm or "spo2" in g_norm:
+    # Tratamento dinâmico por grandeza identificada no certificado
+    if "saturacao" in g_norm or "spo2" in g_norm:
         if ponto_num is not None:
             return abs(ponto_num) * (3.0 / 100.0)
         return 3.0
+    
+    if "frequencia" in g_norm or "bpm" in g_norm:
+        if "oximetro" in normalizar(equipamento):
+            return 5.0
 
     if not config:
         return None
@@ -407,7 +411,7 @@ def calcular_status_geral(pontos, equipamento):
 def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
     pontos = []
     
-    # Varre o texto do PDF linha por linha para detectar blocos de grandezas do certificado
+    # Divide o texto do PDF por blocos ou linhas para capturar o título da grandeza exata de cada tabela
     linhas_texto = [x.strip() for x in texto_pdf.splitlines() if x.strip()]
     
     for df in tabelas_df:
@@ -415,26 +419,32 @@ def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
         if col_erro is None or col_inc is None:
             continue
             
-        grandeza_atual = "Parâmetro Geral"
+        grandeza_atual = equipamento  # Assume o nome do equipamento como base se não achar título específico
         
-        # Tenta varrer as linhas acima ou na própria tabela para encontrar a grandeza descrita
-        for idx, row in df.iterrows():
-            texto_linha = " ".join([str(val) for val in row.values if val])
-            t_norm = normalizar(texto_linha)
-            
-            # Detecta grandezas médicas comuns com base nos títulos dos blocos da imagem
-            if "frequencia cardiaca" in t_norm or "oximetria" in t_norm:
-                grandeza_atual = "Frequência Cardíaca da Oximetria"
-            elif "saturacao" in t_norm or "spo2" in t_norm:
-                grandeza_atual = "Saturação do Oxigênio no Sangue [SpO2]"
-            elif "temperatura" in t_norm:
-                grandeza_atual = "Temperatura"
-            elif "pressao" in t_norm or "pni" in t_norm:
-                grandeza_atual = "Pressão Arterial (PNI)"
+        # Procura no texto acima da tabela ou nas linhas o nome da grandeza real do certificado
+        texto_tabela_unido = " ".join([" ".join(str(v) for v in row.values) for _, row in df.iterrows()])
+        t_unido_norm = normalizar(texto_tabela_unido)
+        
+        # Varre o texto global do PDF para ver qual seção precede esta tabela
+        texto_pdf_norm = normalizar(texto_pdf)
+        
+        # Detecção limpa baseada no conteúdo real do PDF analisado
+        if "frequencia cardiaca" in t_unido_norm or "oximetria" in t_unido_norm or "bpm" in t_unido_norm:
+            grandeza_atual = "Frequência Cardíaca da Oximetria"
+        elif "saturacao" in t_unido_norm or "spo2" in t_unido_norm:
+            grandeza_atual = "Saturação do Oxigênio no Sangue [SpO2]"
+        elif "temperatura" in t_unido_norm or "celsius" in t_unido_norm or "c" in t_unido_norm:
+            grandeza_atual = "Temperatura"
+        elif "pressao" in t_unido_norm or "pni" in t_unido_norm or "mmhg" in t_unido_norm:
+            grandeza_atual = "Pressão Arterial (PNI)"
+        else:
+            # Tenta buscar nas linhas do texto do PDF a grandeza mais próxima
+            for linha in linhas_texto:
+                l_norm = normalizar(linha)
+                if any(term in l_norm for term in ["frequencia", "saturacao", "temperatura", "pressao", "escala", "parametro", "spo2"]):
+                    grandeza_atual = linha[:50]
+                    break
 
-        # Varre também o texto bruto do PDF próximo para refinar a grandeza se necessário
-        texto_completo_norm = normalizar(texto_pdf)
-        
         for idx, row in df.iterrows():
             erro = numero_ptbr(row.get(col_erro))
             incerteza = numero_ptbr(row.get(col_inc))
@@ -444,11 +454,7 @@ def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
             ponto = str(row.get(col_ponto, "")).strip() if row.get(col_ponto) is not None else ""
             if ponto.lower() == "nan":
                 ponto = ""
-            
-            # Refinamento por detecção nas linhas do PDF anterior à tabela
-            # Caso o cabeçalho venha antes da tabela no texto extraído do pdfplumber:
-            row_text_joined = normalizar(" ".join([str(v) for v in row.values]))
-            
+                
             pontos.append({
                 "ID": len(pontos) + 1,
                 "Grandeza": grandeza_atual,
@@ -459,16 +465,6 @@ def extrair_pontos(tabelas_df, equipamento, texto_pdf=""):
                 "Limite RQ": None,
                 "Resultado": "PENDENTE",
             })
-            
-    # Fallback inteligente se a tabela veio sem título explícito na mesma linha
-    if pontos:
-        total_p = len(pontos)
-        for i, p in enumerate(pontos):
-            if p["Grandeza"] == "Parâmetro Geral":
-                if i < total_p // 2:
-                    p["Grandeza"] = "Frequência Cardíaca da Oximetria"
-                else:
-                    p["Grandeza"] = "Saturação do Oxigênio no Sangue [SpO2]"
 
     return avaliar_pontos(pontos, equipamento)
 
@@ -554,8 +550,8 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 
 st.title("📄 Validador de Certificados de Calibração")
 st.write(
-    "O sistema valida os certificados comparando |erro| + |incerteza| com os limites oficiais "
-    "(Frequência Cardíaca fixa em 5 e Saturação em 3%)."
+    "O sistema valida os certificados extraindo dinamicamente as grandezas, os pontos de referência "
+    "e comparando |erro| + |incerteza| com os limites oficiais da RQ.COR.111."
 )
 
 col1, col2 = st.columns(2)
@@ -590,7 +586,7 @@ if pdf_files:
 
             if pontos:
                 st.write("**Pontos extraídos e cálculos dinâmicos**")
-                df_exibicao = pd.DataFrame(pontos)
+                df_exibicao = pd.DataFrame(pontos).drop(columns=["ID"], errors="ignore")
                 st.dataframe(df_exibicao, use_container_width=True)
             else:
                 st.warning("Não encontrei uma tabela com colunas reconhecíveis.")
@@ -617,7 +613,7 @@ if pdf_files:
             else:
                 st.info("A liberação exige aprovação de todos os pontos, nome do técnico e OS.")
 
-            observacao = "Validação aplicada com limite fixo de 5 para FC e 3% para SpO2."
+            observacao = "Validação dinâmica aplicada conforme os limites oficiais da RQ.COR.111."
             relatorio = gerar_relatorio_pdf(
                 nome_usuario, numero_os, pdf_file.name, metadados,
                 pontos, status_geral, observacao
