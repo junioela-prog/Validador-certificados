@@ -111,12 +111,13 @@ def extrair_texto_pdf(arquivo):
 def extrair_metadados(texto, nome_arquivo=""):
     linhas = [x.strip() for x in texto.splitlines() if x.strip()]
     
+    is_cardioversor = "CARDIOVERSOR" in nome_arquivo.upper() or "CARDIOVERSOR" in texto.upper()
     is_dea = (
         "DEA" in nome_arquivo.upper() or 
         "DESFIBRILADOR" in nome_arquivo.upper() or 
         "AED" in nome_arquivo.upper() or
         "DESFIBRILADOR" in texto.upper()
-    )
+    ) and not is_cardioversor
 
     padroes = {
         "Cliente": r"(?:cliente|contratante)\s*[:\-]\s*(.+)",
@@ -127,7 +128,7 @@ def extrair_metadados(texto, nome_arquivo=""):
         "Data da calibração": r"(?:data da calibração|data de calibração|data)\s*[:\-]\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
     }
     
-    if not is_dea:
+    if not is_dea and not is_cardioversor:
         padroes["Capacidade Máxima"] = r"Capacidade M[aá]xima\s*[:\-]\s*([\d,\.]+)\s*([kKgG]+)"
 
     dados = {}
@@ -138,7 +139,10 @@ def extrair_metadados(texto, nome_arquivo=""):
                 dados[nome] = m.group(1).strip()[:180]
                 break
 
-    if is_dea:
+    if is_cardioversor:
+        dados["Equipamento identificado"] = "Cardioversor / Multiparamétrico"
+        dados["Fonte da identificação"] = "Identificado via termo de Cardioversor"
+    elif is_dea:
         dados["Equipamento identificado"] = "DEA (Desfibrilador Externo Automático)"
         dados["Fonte da identificação"] = "Identificado via nomenclatura/termo de DEA"
     else:
@@ -194,73 +198,74 @@ def extrair_pontos_balanca(texto_pdf):
     return pontos
 
 
-def extrair_pontos_dea(tabelas_pdf, texto_pdf=""):
+def extrair_pontos_cardioversor(texto_pdf):
     pontos = []
+    linhas = texto_pdf.splitlines()
+    secao_atual = None  # Começa vazio para ignorar tudo antes da primeira tabela real
     
-    # Tenta extrair diretamente das tabelas nativas do PDF
-    if tabelas_pdf:
-        for tab in tabelas_pdf:
-            for linha in tab:
-                # Procura linhas que pareçam conter dados de energia (números seguidos)
-                valores_linha = [str(c).strip() for c in linha if c is not None and str(c).strip() != ""]
-                if len(valores_linha) >= 2:
-                    # Tenta converter o primeiro elemento para número (ex: valor de Joules programado)
-                    val_num = numero_ptbr(valores_linha[0])
-                    if val_num is not None and val_num >= 10 and val_num <= 500:
-                        erro_val = numero_ptbr(valores_linha[1]) if len(valores_linha) > 1 else 0.0
-                        inc_val = numero_ptbr(valores_linha[2]) if len(valores_linha) > 2 else 0.0
-                        
-                        item = {
-                            "Grandeza": "Joules (J)",
-                            "Ponto / referência": fmt_num(val_num),
-                            "Erro lido": erro_val if erro_val is not None else 0.0,
-                            "Incerteza lida": inc_val if inc_val is not None else 0.0,
-                            "|Erro| + |Incerteza|": abs(erro_val or 0.0) + abs(inc_val or 0.0),
-                            "Desvio Aceitável (RQ)": 15.0,
-                            "Resultado": "APROVADO",
-                        }
-                        if item not in pontos:
-                            pontos.append(item)
+    for linha in linhas:
+        linha_up = linha.upper()
+        
+        # Identifica estritamente as seções oficiais de resultados do cardioversor
+        if "ENERGIA" in linha_up:
+            secao_atual = "Energia (J)"
+            continue
+        elif "PRESSÃO" in linha_up and "SISTÓLICA" in linha_up:
+            secao_atual = "Pressão Sistólica (mmHg)"
+            continue
+        elif "PRESSÃO" in linha_up and "DIASTÓLICA" in linha_up:
+            secao_atual = "Pressão Diastólica (mmHg)"
+            continue
+        elif "FREQUÊNCIA CARDÍACA" in linha_up or ("FREQUENCIA" in linha_up and "CARDIACA" in linha_up):
+            secao_atual = "Frequência Cardíaca (BPM)"
+            continue
+        elif "SATURAÇÃO" in linha_up or "SPO2" in linha_up:
+            secao_atual = "SpO2 (%)"
+            continue
+        elif "RESPIRAÇÃO" in linha_up or "FR" in linha_up:
+            secao_atual = "Respiração (BRPM)"
+            continue
 
-    # Se não achou nas tabelas estruturadas, varre o texto buscando padrões de Joules
-    if not pontos and texto_pdf:
-        for linha in texto_pdf.splitlines():
-            match_nums = re.findall(r"([\d,\.]+)", linha)
-            if len(match_nums) >= 2:
-                val1 = numero_ptbr(match_nums[0])
-                if val1 in [50, 100, 150, 200, 250, 300, 360]:
-                    erro_val = numero_ptbr(match_nums[1]) if len(match_nums) > 1 else 0.0
-                    inc_val = numero_ptbr(match_nums[2]) if len(match_nums) > 2 else 0.0
+        # Se ainda não entrou numa seção de parâmetros válidos, ignora a linha
+        if secao_atual is None:
+            continue
+
+        # Procura por linhas que contenham números de resultados de calibração válidos
+        match_nums = re.findall(r"([\d,\.\-]+)", linha)
+        if len(match_nums) >= 3:
+            val_ref = numero_ptbr(match_nums[0])
+            val_erro = numero_ptbr(match_nums[-2] if len(match_nums) >= 4 else match_nums[1])
+            val_inc = numero_ptbr(match_nums[-1])
+            
+            if val_ref is not None and val_erro is not None and val_inc is not None:
+                # Filtra valores realistas para excluir anos, códigos e números de página
+                if val_ref < 1000 and abs(val_erro) < 500:
+                    if "Energia" in secao_atual:
+                        tolerancia = 15.0
+                    elif "SpO2" in secao_atual:
+                        tolerancia = 3.0
+                    else:
+                        tolerancia = 5.0
+                        
+                    soma_criterio = abs(val_erro) + abs(val_inc)
+                    resultado = "APROVADO" if soma_criterio <= tolerancia else "REPROVADO"
                     
                     item = {
-                        "Grandeza": "Joules (J)",
-                        "Ponto / referência": fmt_num(val1),
-                        "Erro lido": erro_val if erro_val is not None else 0.0,
-                        "Incerteza lida": inc_val if inc_val is not None else 0.0,
-                        "|Erro| + |Incerteza|": abs(erro_val or 0.0) + abs(inc_val or 0.0),
-                        "Desvio Aceitável (RQ)": 15.0,
-                        "Resultado": "APROVADO",
+                        "Grandeza": secao_atual,
+                        "Ponto / referência": fmt_num(val_ref),
+                        "Erro lido": val_erro,
+                        "Incerteza lida": abs(val_inc),
+                        "|Erro| + |Incerteza|": soma_criterio,
+                        "Desvio Aceitável (RQ)": tolerancia,
+                        "Resultado": resultado,
                     }
                     if item not in pontos:
                         pontos.append(item)
-
-    # Fallback caso nenhuma linha seja detectada automaticamente
-    if not pontos:
-        for padrao_j in [50, 100, 150, 200]:
-            pontos.append({
-                "Grandeza": "Joules (J)",
-                "Ponto / referência": f"{padrao_j} J",
-                "Erro lido": 0.0,
-                "Incerteza lida": 0.0,
-                "|Erro| + |Incerteza|": 0.0,
-                "Desvio Aceitável (RQ)": 15.0,
-                "Resultado": "APROVADO"
-            })
-            
+                        
     return pontos
 
 
-def calcular_status_geral(pontos, is_dea=False):
+def calcular_status_geral(pontos):
     if not pontos:
         return "PENDENTE — nenhum ponto extraído"
     if any(str(p.get("Resultado")).upper() == "REPROVADO" for p in pontos):
@@ -319,7 +324,7 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
                 fmt_num(p.get("Desvio Aceitável (RQ)")),
                 escape(str(p.get("Resultado", ""))),
             ])
-        tabp = Table(dados_p, colWidths=[110, 70, 50, 60, 95, 95, 80], repeatRows=1)
+        tabp = Table(dados_p, colWidths=[130, 70, 50, 60, 95, 95, 80], repeatRows=1)
         tabp.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
             ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
@@ -350,7 +355,7 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 st.title("📄 Validador de Certificados de Calibração")
 st.write(
     "O sistema lê os pontos do certificado PDF e aplica o critério metrológico correto para "
-    "**Balanças** ou **DEAs**."
+    "**Balanças**, **DEAs** ou **Cardioversores**."
 )
 
 col1, col2 = st.columns(2)
@@ -372,18 +377,22 @@ if pdf_files:
         try:
             texto, tabelas = extrair_texto_pdf(pdf_file)
             
+            is_cardioversor = "CARDIOVERSOR" in pdf_file.name.upper() or "CARDIOVERSOR" in texto.upper()
             is_dea = (
                 "DEA" in pdf_file.name.upper() or 
                 "DESFIBRILADOR" in pdf_file.name.upper() or 
                 "AED" in pdf_file.name.upper() or
                 "DESFIBRILADOR" in texto.upper()
-            )
+            ) and not is_cardioversor
 
             metadados = extrair_metadados(texto, pdf_file.name)
 
-            if is_dea:
-                st.info("⚡ **Equipamento identificado:** Desfibrilador Externo Automático (DEA). Aplicando regras de validação de energia (Joules)...")
-                pontos = extrair_pontos_dea(tabelas, texto)
+            if is_cardioversor:
+                st.info("⚡ **Equipamento identificado:** Cardioversor / Multiparamétrico. Analisando parâmetros...")
+                pontos = extrair_pontos_cardioversor(texto)
+            elif is_dea:
+                st.info("⚡ **Equipamento identificado:** Desfibrilador Externo Automático (DEA). Aplicando regras...")
+                pontos = extrair_pontos_cardioversor(texto)
             else:
                 st.info("⚖️ **Equipamento identificado:** Balança. Aplicando critérios da planilha RQ.COR.111...")
                 pontos = extrair_pontos_balanca(texto)
@@ -398,7 +407,7 @@ if pdf_files:
             else:
                 st.warning("Não encontrei os pontos de calibração neste certificado.")
 
-            status_geral = calcular_status_geral(pontos, is_dea=is_dea)
+            status_geral = calcular_status_geral(pontos)
             st.write("### Resultado automático")
             if status_geral.startswith("APROVADO"):
                 st.success(status_geral)
