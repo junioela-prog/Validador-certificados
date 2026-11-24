@@ -1,0 +1,118 @@
+{
+  "Balança digital e bioimpedância - Adultos": {
+    "familia": "Balanças",
+    "palavras_chave": ["balanca", "adulto", "bioimpedancia"],
+    "parametros": [
+      {
+        "grandeza": "Massa",
+        "unidade": "kg",
+        "palavras_grandeza": ["massa", "peso", "kg"],
+        "pontos": [
+          {"ponto": 20, "desvio": 0.3, "tipo_desvio": "fixo", "min": 19.70, "max": 20.30},
+          {"ponto": 40, "desvio": 0.3, "tipo_desvio": "fixo", "min": 39.70, "max": 40.30},
+          {"ponto": 60, "desvio": 0.3, "tipo_desvio": "fixo", "min": 59.70, "max": 60.30},
+          {"ponto": 80, "desvio": 0.3, "tipo_desvio": "fixo", "min": 79.70, "max": 80.30},
+          {"ponto": 100, "desvio": 0.3, "tipo_desvio": "fixo", "min": 99.70, "max": 100.30}
+        ]
+      }
+    ]
+  },
+  "Balança digital - Neonatal": {
+    "familia": "Balanças",
+    "palavras_chave": ["balanca", "neonatal", "pediatrica"],
+    "parametros": [
+      {
+        "grandeza": "Massa",
+        "unidade": "kg",
+        "palavras_grandeza": ["massa", "peso", "kg"],
+        "pontos": [
+          {"ponto": 2, "desvio": 0.20, "tipo_desvio": "fixo", "min": 1.800, "max": 2.200},
+          {"ponto": 5, "desvio": 0.20, "tipo_desvio": "fixo", "min": 4.800, "max": 5.200},
+          {"ponto": 10, "desvio": 0.20, "tipo_desvio": "fixo", "min": 9.800, "max": 10.200},
+          {"ponto": 20, "desvio": 0.20, "tipo_desvio": "fixo", "min": 19.800, "max": 20.200},
+          {"ponto": 25, "desvio": 0.20, "tipo_desvio": "fixo", "min": 24.800, "max": 25.200}
+        ]
+      }
+    ]
+  },
+  "Balança analítica - Área de processamento": {
+    "familia": "Balanças",
+    "palavras_chave": ["balanca", "analitica"],
+    "parametros": [
+      {
+        "grandeza": "Massa",
+        "unidade": "g",
+        "palavras_grandeza": ["massa", "peso", "g"],
+        "pontos": [
+          {"ponto": 10, "desvio": 0.5, "tipo_desvio": "percentual", "min": 9.950, "max": 10.050},
+          {"ponto": 50, "desvio": 0.5, "tipo_desvio": "percentual", "min": 49.750, "max": 50.250},
+          {"ponto": 100, "desvio": 0.5, "tipo_desvio": "percentual", "min": 99.500, "max": 100.500}
+        ]
+      }
+    ]
+  },
+  "Balança plataforma 500Kg": {
+    "familia": "Balanças",
+    "palavras_chave": ["balanca", "plataforma", "500kg", "500 kg"],
+    "parametros": [
+      {
+        "grandeza": "Massa",
+        "unidade": "kg",
+        "palavras_grandeza": ["massa", "peso", "kg"],
+        "pontos": [
+          {"ponto": 20, "desvio": 0.3, "tipo_desvio": "fixo", "min": 19.70, "max": 20.30},
+          {"ponto": 40, "desvio": 0.3, "tipo_desvio": "fixo", "min": 39.70, "max": 40.30},
+          {"ponto": 60, "desvio": 0.3, "tipo_desvio": "fixo", "min": 59.70, "max": 60.30},
+          {"ponto": 80, "desvio": 0.3, "tipo_desvio": "fixo", "min": 79.70, "max": 80.30},
+          {"ponto": 100, "desvio": 0.3, "tipo_desvio": "fixo", "min": 99.70, "max": 100.30},
+          {"ponto": 160, "desvio": 0.3, "tipo_desvio": "fixo", "min": 159.70, "max": 160.30}
+        ]
+      }
+    ]
+  },
+  "Oxímetro de pulso": {
+    "familia": "Monitorização",
+    "palavras_chave": ["oximetro", "spo2", "rad-"],
+    "parametros": [
+      {
+        "grandeza": "Saturação de Oxigênio (SpO2)",
+        "unidade": "%SpO2",
+        "palavras_grandeza": ["spo2", "saturacao", "%"],
+        "pontos": [
+          {"ponto": 70, "desvio": 3.0, "tipo_desvio": "fixo", "min": 67.0, "max": 73.0},
+          {"ponto": 80, "desvio": 3.0, "tipo_desvio": "fixo", "min": 77.0, "max": 83.0},
+          {"ponto": 90, "desvio": 3.0, "tipo_desvio": "fixo", "min": 87.0, "max": 93.0},
+          {"ponto": 95, "desvio": 3.0, "tipo_desvio": "fixo", "min": 92.0, "max": 98.0},
+          {"ponto": 98, "desvio": 3.0, "tipo_desvio": "fixo", "min": 95.0, "max": 100.0}
+        ]
+      },
+      {
+        "grandeza": "Frequência Cardíaca",
+        "unidade": "BPM",
+        "palavras_grandeza": ["bpm", "frequencia cardiaca", "frequencia de pulso", "pulso"],
+        "pontos": [
+          {"ponto": 60, "desvio": 5.0, "tipo_desvio": "fixo", "min": 55.0, "max": 65.0},
+          {"ponto": 100, "desvio": 5.0, "tipo_desvio": "fixo", "min": 95.0, "max": 105.0},
+          {"ponto": 150, "desvio": 5.0, "tipo_desvio": "fixo", "min": 145.0, "max": 155.0}
+        ]
+      }
+    ]
+  },
+  "DEA / Cardioversor": {
+    "familia": "Emergência",
+    "palavras_chave": ["dea", "desfibrilador", "cardioversor"],
+    "parametros": [
+      {
+        "grandeza": "Energia Descarregada",
+        "unidade": "J",
+        "palavras_grandeza": ["energia", "joule", "j"],
+        "pontos": [
+          {"ponto": 50, "desvio": 15.0, "tipo_desvio": "percentual", "min": 42.5, "max": 57.5},
+          {"ponto": 100, "desvio": 15.0, "tipo_desvio": "percentual", "min": 85.0, "max": 115.0},
+          {"ponto": 150, "desvio": 15.0, "tipo_desvio": "percentual", "min": 127.5, "max": 172.5},
+          {"ponto": 200, "desvio": 15.0, "tipo_desvio": "percentual", "min": 170.0, "max": 230.0}
+        ]
+      }
+    ]
+  }
+}

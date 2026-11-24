@@ -11,83 +11,20 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
+from motor_rq111 import (
+    carregar_regras,
+    fmt_num,
+    identificar_equipamento_dinamico,
+    validar_pontos_dinamico,
+)
+
 st.set_page_config(page_title="Validador de Certificados", page_icon="📄", layout="wide")
 
 
-# ============================================================
-# FUNÇÕES GERAIS DE SUPORTE
-# ============================================================
+@st.cache_data
+def obter_regras():
+    return carregar_regras("regras_rq111.json")
 
-def normalizar(valor):
-    if valor is None:
-        return ""
-    try:
-        if pd.isna(valor):
-            return ""
-    except (TypeError, ValueError):
-        pass
-
-    texto = str(valor).strip().lower()
-    substituicoes = {
-        "º": "o", "ª": "a", "µ": "u", "μ": "u", "ç": "c",
-        "ã": "a", "á": "a", "à": "a", "â": "a", "é": "e",
-        "ê": "e", "í": "i", "ó": "o", "ô": "o", "õ": "o", "ú": "u",
-    }
-    for antigo, novo in substituicoes.items():
-        texto = texto.replace(antigo, novo)
-
-    texto = re.sub(r"[^a-z0-9,./%°+\-]+", " ", texto)
-    return re.sub(r"\s+", " ", texto).strip()
-
-
-def numero_ptbr(valor):
-    if valor is None:
-        return None
-    try:
-        if pd.isna(valor):
-            return None
-    except (TypeError, ValueError):
-        pass
-
-    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
-        return float(valor)
-
-    s = str(valor).strip().replace("−", "-").replace("–", "-")
-    if not s:
-        return None
-
-    s = re.sub(r"[^0-9,\.eE+\-]", "", s)
-    if not s or not re.search(r"\d", s):
-        return None
-
-    if "," in s and "." in s:
-        if s.rfind(",") > s.rfind("."):
-            s = s.replace(".", "").replace(",", ".")
-        else:
-            s = s.replace(",", "")
-    elif "," in s:
-        s = s.replace(",", ".")
-
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
-
-def fmt_num(valor):
-    if valor is None:
-        return "Não identificado"
-    try:
-        if pd.isna(valor):
-            return "Não identificado"
-    except (TypeError, ValueError):
-        pass
-    return f"{float(valor):.8g}".replace(".", ",")
-
-
-# ============================================================
-# IDENTIFICAÇÃO E EXTRAÇÃO ROBUSTA
-# ============================================================
 
 def extrair_texto_pdf(arquivo):
     arquivo.seek(0)
@@ -98,85 +35,7 @@ def extrair_texto_pdf(arquivo):
     return "\n".join(partes)
 
 
-def identificar_equipamento(texto, nome_arquivo="", tipo_manual="Automático"):
-    if tipo_manual and tipo_manual != "Automático":
-        return tipo_manual
-
-    nome_norm = normalizar(nome_arquivo)
-    texto_norm = normalizar(texto)
-
-    # PRIORIDADE 1: balanças. Alguns certificados podem conter termos
-    # genéricos como SpO2 em rodapés/modelos; não deixar isso sobrepor
-    # evidências claras de que o documento é de uma balança.
-    m_cap = re.search(
-        r"capacidade maxima\\s*[:\\-]?\\s*([\\d,\\.]+)\\s*([kKgG]+)",
-        texto_norm,
-        re.IGNORECASE,
-    )
-    cap_val = numero_ptbr(m_cap.group(1)) if m_cap else 0.0
-
-    eh_balanca = (
-        "balanca" in nome_norm
-        or "balanca" in texto_norm
-        or "ubb" in nome_norm
-        or "balanca" in texto_norm
-        or "balanca" in nome_norm
-    )
-
-    if eh_balanca or (cap_val > 0 and re.search(r"\\bkg\\b", texto_norm)):
-        if "analitica" in nome_norm or "analitica" in texto_norm:
-            return "Balança Analítica"
-        if "pediatrica" in nome_norm or "neonatal" in nome_norm or "pediatrica" in texto_norm or "neonatal" in texto_norm or (cap_val > 0 and cap_val <= 30):
-            return "Balança Pediátrica/Neonatal"
-        if cap_val >= 150:
-            return "Balança Adulta"
-        return "Balança Adulta"
-
-    # Demais equipamentos: mantém a identificação anterior.
-    if (
-        "oximetro" in nome_norm
-        or "oximetro" in texto_norm
-        or "spo2" in texto_norm
-        or "rad-" in texto_norm
-    ):
-        return "Oxímetro de pulso"
-
-    if (
-        "dea" in nome_norm
-        or "desfibrilador" in nome_norm
-        or "cardioversor" in nome_norm
-        or "dea" in texto_norm
-        or "desfibrilador" in texto_norm
-        or "cardioversor" in texto_norm
-    ):
-        return "DEA / Cardioversor"
-
-    if "monitor" in nome_norm and "triagem" in nome_norm:
-        return "Monitor de Triagem"
-
-    if "multiparametro" in nome_norm or (
-        "monitor" in nome_norm and "multiparametro" not in nome_norm
-    ):
-        return "Monitor Multiparamêtros"
-
-    if (
-        "esfigmo" in nome_norm
-        or "pni" in nome_norm
-        or "pressao" in nome_norm
-    ):
-        return "Esfigmomanômetro Digital"
-
-    if "analitica" in texto_norm:
-        return "Balança Analítica"
-    if cap_val > 0 and cap_val <= 30:
-        return "Balança Pediátrica/Neonatal"
-    if cap_val >= 150:
-        return "Balança Adulta"
-
-    return "Oxímetro de pulso"
-
-
-def extrair_metadados(texto, nome_arquivo="", tipo_manual="Automático"):
+def extrair_metadados(texto, nome_arquivo, regras, tipo_manual="Automático"):
     linhas = [x.strip() for x in texto.splitlines() if x.strip()]
     padroes = {
         "Cliente": r"(?:cliente|contratante)\s*[:\-]\s*(.+)",
@@ -196,203 +55,20 @@ def extrair_metadados(texto, nome_arquivo="", tipo_manual="Automático"):
                 dados[nome] = m.group(1).strip()[:180]
                 break
 
-    eq = identificar_equipamento(texto, nome_arquivo, tipo_manual)
+    eq = identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual)
     dados["Equipamento identificado"] = eq
-    dados["Fonte da identificação"] = "Automática / Regras"
+    dados["Família (RQ.COR.111)"] = regras.get(eq, {}).get("familia", "Não informada")
+    dados["Fonte da identificação"] = "Manual" if tipo_manual != "Automático" else "Automática (RQ.COR.111)"
     return dados
-
-
-def extrair_pontos_certificado(texto_pdf, equipamento):
-    pontos = []
-    linhas = texto_pdf.splitlines()
-    eq_l = equipamento.lower()
-    capturando_tabela = False
-
-    # Guarda a grandeza indicada pelo cabeçalho, caso o nome não se repita
-    # em cada linha de resultado do certificado.
-    grandeza_contexto = ""
-
-    for linha in linhas:
-        l_low = linha.lower()
-        linha_norm = normalizar(linha)
-
-        # Atualiza o contexto da tabela com cabeçalhos de oximetria.
-        if any(t in linha_norm for t in [
-            "saturacao", "spo2", "oxigenio", "oxygen saturation"
-        ]):
-            grandeza_contexto = "spo2"
-        elif any(t in linha_norm for t in [
-            "frequencia cardiaca", "frequencia de pulso", "bpm",
-            "pulse rate", "heart rate"
-        ]):
-            grandeza_contexto = "bpm"
-
-        # Mantém a regra original de ignorar linhas de datas.
-        if "/" in linha or re.search(r"\b20[2-3]\d\b", linha):
-            continue
-
-        if any(termo in l_low for termo in [
-            "resultados da calibração",
-            "valor indicado",
-            "incerteza de medição",
-            "frequência cardíaca",
-            "saturação",
-        ]):
-            capturando_tabela = True
-            # O cabeçalho não é uma linha de resultados.
-            continue
-
-        if any(termo in l_low for termo in [
-            "carga mínima",
-            "capacidade máxima",
-            "resolução (d)",
-            "resolução (e)",
-            "fator de abrangência",
-        ]):
-            continue
-
-        if "***** fim" in l_low or "observações" in l_low:
-            capturando_tabela = False
-
-        if not capturando_tabela:
-            continue
-
-        match_nums = re.findall(r"([−\-\d,\.]+)", linha)
-        if len(match_nums) < 4:
-            continue
-
-        val1 = numero_ptbr(match_nums[0])  # Valor no padrão
-        val2 = numero_ptbr(match_nums[1])  # Valor no instrumento
-        erro_val = numero_ptbr(match_nums[2])
-        inc_val = numero_ptbr(match_nums[3])
-
-        if val1 is None or val2 is None or inc_val is None:
-            continue
-
-        # 1. DEA / Cardioversor
-        if "dea" in eq_l or "cardioversor" in eq_l:
-            grandeza = "Energia Descarregada"
-            unidade = "J"
-            ponto_nominal = val2
-            ponto_lido = val1
-            tolerancia = ponto_nominal * 0.15
-            erro_real = ponto_lido - ponto_nominal
-            erro_total = abs(erro_real) + abs(inc_val)
-
-            item = {
-                "Ponto Nominal": fmt_num(ponto_nominal),
-                "Ponto Lido": fmt_num(ponto_lido),
-                "Unidade": unidade,
-                "Grandeza": grandeza,
-                "Erro": erro_real,
-                "Incerteza da Medição": abs(inc_val),
-                "Erro Total": erro_total,
-                "Erro Aceitável": tolerancia,
-                "CONCLUSAO": "Aprovado" if erro_total <= tolerancia else "Reprovado",
-            }
-
-        # 2. Oxímetro de pulso / Monitores
-        elif "oximetro" in eq_l or "monitor" in eq_l:
-            # Identifica a grandeza pela própria linha ou pelo cabeçalho anterior.
-            # Não usa apenas a presença de "SpO2" em qualquer parte do PDF,
-            # pois isso poderia classificar pontos de BPM como saturação.
-            if (
-                "spo2" in linha_norm
-                or "saturacao" in linha_norm
-                or "saturação" in l_low
-                or "%" in linha
-                or grandeza_contexto == "spo2"
-            ):
-                grandeza = "Saturação de Oxigênio (SpO2)"
-                unidade = "%SpO2"
-                tolerancia = 3.0  # 3 pontos percentuais, conforme critério configurado
-
-            elif (
-                "bpm" in linha_norm
-                or "frequencia cardiaca" in linha_norm
-                or "frequencia de pulso" in linha_norm
-                or "pulso" in linha_norm
-                or "heart rate" in linha_norm
-                or "pulse rate" in linha_norm
-                or grandeza_contexto == "bpm"
-            ):
-                grandeza = "Frequência Cardíaca da Oximetria"
-                unidade = "BPM"
-                tolerancia = 5.0  # 5 BPM fixos, conforme critério configurado
-
-            else:
-                # Não inventa a grandeza quando o PDF não fornece indicação suficiente.
-                continue
-
-            # Convenção mantida do código original: padrão = val1,
-            # instrumento = val2. Conferir com o layout real do certificado.
-            ponto_nominal = val1
-            ponto_lido = val2
-            erro_real = ponto_lido - ponto_nominal
-            erro_total = abs(erro_real) + abs(inc_val)
-
-            item = {
-                "Ponto Nominal": fmt_num(ponto_nominal),
-                "Ponto Lido": fmt_num(ponto_lido),
-                "Unidade": unidade,
-                "Grandeza": grandeza,
-                "Erro": erro_real,
-                "Incerteza da Medição": abs(inc_val),
-                "Erro Total": erro_total,
-                "Erro Aceitável": tolerancia,
-                "CONCLUSAO": "Aprovado" if erro_total <= tolerancia else "Reprovado",
-            }
-
-        # 3. Balanças — mantido conforme a lógica original
-        else:
-            ponto_val = val1
-            if ponto_val <= 0 or ponto_val > 1000:
-                continue
-            if abs(erro_val) > 50 or abs(inc_val) > 50:
-                continue
-
-            if "analitica" in eq_l:
-                grandeza = "Kilos"
-                unidade = "g" if "g" in l_low else "kg"
-                tolerancia = ponto_val * 0.005
-            elif "pediatrica" in eq_l or "neo" in eq_l:
-                grandeza = "Kilos"
-                unidade = "g" if "g" in l_low else "kg"
-                tolerancia = 0.2
-            else:
-                grandeza = "Kilos"
-                unidade = "g" if "g" in l_low else "kg"
-                tolerancia = 0.3
-
-            erro_total = abs(erro_val) + abs(inc_val)
-            item = {
-                "Pontos": fmt_num(ponto_val),
-                "Unidade": unidade,
-                "Grandeza": grandeza,
-                "Erro": erro_val,
-                "Incerteza da Medição": abs(inc_val),
-                "Erro Total": erro_total,
-                "Erro Aceitável": tolerancia,
-                "CONCLUSAO": "Aprovado" if erro_total <= tolerancia else "Reprovado",
-            }
-
-        if item not in pontos:
-            pontos.append(item)
-
-    return pontos
 
 
 def calcular_status_geral(pontos):
     if not pontos:
         return "PENDENTE — nenhum ponto extraído"
     if any(p.get("CONCLUSAO") == "Reprovado" for p in pontos):
-        return "REPROVADO — pelo menos um ponto excedeu o erro aceitável"
-    return "APROVADO — todos os pontos estão dentro do erro aceitável"
+        return "REPROVADO — pelo menos um ponto excedeu o limite/desvio aceitável"
+    return "APROVADO — todos os pontos estão dentro dos limites e desvios aceitáveis"
 
-
-# ============================================================
-# RELATÓRIO PDF
-# ============================================================
 
 def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
                         pontos, status_geral, observacao):
@@ -416,7 +92,7 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 
     dados = [["Campo", "Valor"]]
     dados.extend([[escape(str(k)), escape(str(v))] for k, v in metadados.items()])
-    tab = Table(dados, colWidths=[150, 430], repeatRows=1)
+    tab = Table(dados, colWidths=[170, 450], repeatRows=1)
     tab.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
@@ -427,40 +103,24 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
     conteudo.extend([Spacer(1, 10), Paragraph("Pontos extraídos e Validação", estilos["Heading2"])])
 
     if pontos:
-        primeiro = pontos[0]
-        if "Ponto Nominal" in primeiro:
-            dados_p = [[
-                "Ponto Nominal", "Ponto Lido", "Unidade", "Grandeza", "Erro", "Incerteza",
-                "Erro Total", "Erro Aceitável", "Conclusão"
-            ]]
-            for p in pontos:
-                dados_p.append([
-                    str(p.get("Ponto Nominal", "")),
-                    str(p.get("Ponto Lido", "")),
-                    str(p.get("Unidade", "")),
-                    str(p.get("Grandeza", "")),
-                    fmt_num(p.get("Erro")),
-                    fmt_num(p.get("Incerteza da Medição")),
-                    fmt_num(p.get("Erro Total")),
-                    fmt_num(p.get("Erro Aceitável")),
-                    str(p.get("CONCLUSAO", "")),
-                ])
-        else:
-            dados_p = [[
-                "Pontos", "Unidade", "Grandeza", "Erro", "Incerteza",
-                "Erro Total", "Erro Aceitável", "Conclusão"
-            ]]
-            for p in pontos:
-                dados_p.append([
-                    str(p.get("Pontos", "")),
-                    str(p.get("Unidade", "")),
-                    str(p.get("Grandeza", "")),
-                    fmt_num(p.get("Erro")),
-                    fmt_num(p.get("Incerteza da Medição")),
-                    fmt_num(p.get("Erro Total")),
-                    fmt_num(p.get("Erro Aceitável")),
-                    str(p.get("CONCLUSAO", "")),
-                ])
+        dados_p = [[
+            "Grandeza", "Unid.", "Nominal", "Lido", "Lim. Mín.", "Lim. Máx.",
+            "Erro", "Incerteza", "Erro Total", "Desvio Aceit.", "Conclusão"
+        ]]
+        for p in pontos:
+            dados_p.append([
+                str(p.get("Grandeza", "")),
+                str(p.get("Unidade", "")),
+                str(p.get("Ponto Nominal", "")),
+                str(p.get("Ponto Lido", "")),
+                str(p.get("Limite Mínimo", "")),
+                str(p.get("Limite Máximo", "")),
+                fmt_num(p.get("Erro")),
+                fmt_num(p.get("Incerteza")),
+                fmt_num(p.get("Erro Total")),
+                fmt_num(p.get("Desvio Aceitável")),
+                str(p.get("CONCLUSAO", "")),
+            ])
 
         tabp = Table(dados_p, repeatRows=1)
         tabp.setStyle(TableStyle([
@@ -471,10 +131,7 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
         ]))
         conteudo.append(tabp)
     else:
-        conteudo.append(Paragraph(
-            "Nenhum ponto extraído automaticamente.",
-            estilos["Normal"]
-        ))
+        conteudo.append(Paragraph("Nenhum ponto extraído automaticamente.", estilos["Normal"]))
 
     conteudo.extend([
         Spacer(1, 10),
@@ -486,14 +143,16 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
     return buffer
 
 
-# ============================================================
-# INTERFACE
-# ============================================================
-
 st.title("📄 Validador de Certificados de Calibração")
 st.write(
     "Sistema Validador de Calibração — Garantia de Conformidade com a ABNT NBR ISO/IEC 17025 e RQ.COR.111."
 )
+
+try:
+    regras_rq111 = obter_regras()
+except Exception as e:
+    st.error(f"Erro ao carregar regras_rq111.json: {e}")
+    st.stop()
 
 col1, col2 = st.columns(2)
 with col1:
@@ -501,26 +160,16 @@ with col1:
 with col2:
     numero_os = st.text_input("Número da Ordem de Serviço (OS)", placeholder="Ex.: OS-2026-00125")
 
+opcoes_equipamentos = ["Automático"] + list(regras_rq111.keys())
 tipo_forçado = st.selectbox(
-    "Tipo de Equipamento (Deixe em 'Automático' para detectar pela capacidade e nome)",
-    [
-        "Automático",
-        "Balança Adulta",
-        "Balança Pediátrica/Neonatal",
-        "Balança Analítica",
-        "DEA / Cardioversor",
-        "Monitor Multiparamêtros",
-        "Monitor de Triagem",
-        "Oxímetro de pulso",
-        "Esfigmomanômetro Digital",
-        "Esfigmomanômetro Analógico",
-    ]
+    "Tipo de Equipamento (Lista carregada automaticamente da RQ.COR.111)",
+    opcoes_equipamentos,
 )
 
 pdf_files = st.file_uploader(
     "Envie os certificados de calibração (.pdf)",
     type=["pdf"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
 )
 
 if pdf_files:
@@ -529,13 +178,14 @@ if pdf_files:
         st.subheader(f"Certificado: {pdf_file.name}")
         try:
             texto = extrair_texto_pdf(pdf_file)
-            metadados = extrair_metadados(texto, pdf_file.name, tipo_forçado)
-            equipamento = metadados.get("Equipamento identificado", "Oxímetro de pulso")
-            pontos = extrair_pontos_certificado(texto, equipamento)
+            metadados = extrair_metadados(texto, pdf_file.name, regras_rq111, tipo_forçado)
+            equipamento = metadados.get("Equipamento identificado", "")
+            pontos = validar_pontos_dinamico(texto, equipamento, regras_rq111)
 
             st.write("**Dados identificados no certificado**")
             st.json(metadados)
             st.info(f"Categoria aplicada: **{equipamento}**")
+
             with st.expander("Conferir texto extraído do PDF (diagnóstico)"):
                 st.text_area(
                     "Texto lido do certificado",
