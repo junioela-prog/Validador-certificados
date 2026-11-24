@@ -108,6 +108,18 @@ def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="A
         if "Balança digital e bioimpedância - Adultos" in regras:
             return "Balança digital e bioimpedância - Adultos"
 
+    # Prioriza modelos específicos de desfibrilador/cardioversor/DEA antes do genérico
+    modelos_especificos = [
+        (["zoll", "m2"], "Desfibrilador - ZOLL M2"),
+        (["mindray", "beneheart", "d3"], "Desfibrilador - MINDRAY BeneHeart D3"),
+        (["philips", "dfm100", "dfm 100"], "Desfibrilador - PHILIPS DFM100"),
+        (["instramed", "cardiomax"], "Desfibrilador - INSTRAMED Cardiomax"),
+        (["nihon", "kohden"], "Desfibrilador DEA - NIHON KOHDEN"),
+    ]
+    for chaves, eq_nome in modelos_especificos:
+        if eq_nome in regras and any(c in alvo for c in chaves):
+            return eq_nome
+
     melhor_eq = None
     melhor_score = 0
 
@@ -130,27 +142,45 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm):
 
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
-        if any(k and k in linha_norm for k in chaves):
+        if any(k and re.search(rf"\b{re.escape(k)}\b", linha_norm) for k in chaves):
             return param
 
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
-        if any(k and k in contexto_norm for k in chaves):
+        if any(k and re.search(rf"\b{re.escape(k)}\b", contexto_norm) for k in chaves):
             return param
 
     return None
 
 
-def _buscar_regra_ponto(pontos_config, valor_referencia):
-    if not pontos_config:
-        return None
-
+def _buscar_ou_calcular_regra_ponto(param, valor_referencia):
+    """
+    Busca a regra exata do ponto na RQ.COR.111.
+    Se o certificado for antigo e trouxer um ponto diferente da lista atual,
+    calcula automaticamente a tolerância e os limites mínimo/máximo usando
+    a regra padrão (percentual ou fixa) do parâmetro.
+    """
+    pontos_config = param.get("pontos", [])
     for item in pontos_config:
         p = float(item["ponto"])
-        if abs(valor_referencia - p) <= max(0.01, p * 0.01):
-            return item
+        if abs(valor_referencia - p) <= max(0.01, p * 0.005):
+            return item, False
 
-    return min(pontos_config, key=lambda x: abs(float(x["ponto"]) - valor_referencia))
+    desvio_padrao = float(param.get("desvio_padrao", 0.0))
+    tipo_padrao = param.get("tipo_desvio_padrao", "fixo")
+
+    if tipo_padrao == "percentual":
+        tol = round(abs(valor_referencia) * (desvio_padrao / 100.0), 4)
+    else:
+        tol = desvio_padrao
+
+    return {
+        "ponto": valor_referencia,
+        "desvio": desvio_padrao,
+        "tipo_desvio": tipo_padrao,
+        "min": round(valor_referencia - tol, 4),
+        "max": round(valor_referencia + tol, 4),
+    }, True
 
 
 def validar_pontos_dinamico(texto_pdf, equipamento, regras):
@@ -178,7 +208,6 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not l_low:
             continue
 
-        # Bloqueia explicitamente linhas ambientais e unidades de ambiente
         if any(amb in l_low for amb in [
             "temperatura do ar",
             "umidade relativa",
@@ -191,7 +220,6 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         ]):
             continue
 
-        # Desliga captura fora da tabela principal de resultados
         if any(fim in l_low for fim in [
             "condições ambientais",
             "condicoes ambientais",
@@ -207,7 +235,6 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
             capturando_tabela = False
             continue
 
-        # Liga captura apenas na tabela de resultados da calibração
         if (
             "resultados da calibração" in l_low
             or "resultados da calibracao" in l_low
@@ -258,14 +285,15 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not param:
             continue
 
-        if "energia" in normalizar(param.get("grandeza", "")):
+        # Detecta automaticamente se val1 é o nominal (inteiro/padrão) ou se veio invertido
+        if "energia" in normalizar(param.get("grandeza", "")) and (val2 % 5 == 0 and val1 % 5 != 0):
             ponto_nominal = val2
             ponto_lido = val1
         else:
             ponto_nominal = val1
             ponto_lido = val2
 
-        regra_ponto = _buscar_regra_ponto(param.get("pontos", []), ponto_nominal)
+        regra_ponto, ponto_antigo = _buscar_ou_calcular_regra_ponto(param, ponto_nominal)
         if not regra_ponto:
             continue
 
@@ -299,6 +327,7 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
             "Incerteza": abs(inc_val),
             "Erro Total": erro_total,
             "Desvio Aceitável": tolerancia,
+            "Regra": "Ponto antigo (calculado)" if ponto_antigo else "RQ.COR.111",
             "CONCLUSAO": "Aprovado" if aprovado else "Reprovado",
         }
 
