@@ -81,11 +81,12 @@
   "Cardioversores": {
     "familia": "Cardioversor e Desfibrilador Automático (DEA)",
     "palavras_chave": ["cardioversor", "cardioversores"],
+    "incluir_parametros_de": "Cardioversores",
     "parametros": [
       {
         "grandeza": "Energia Descarregada",
         "unidade": "J",
-        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "j"],
+        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "cardioversao", "carga"],
         "desvio_padrao": 15.0,
         "tipo_desvio_padrao": "percentual",
         "pontos": [
@@ -99,7 +100,7 @@
       {
         "grandeza": "Oximetria (SpO2)",
         "unidade": "%",
-        "palavras_grandeza": ["spo2", "oximetria", "saturacao"],
+        "palavras_grandeza": ["spo2", "oximetria", "saturacao", "oxigenio"],
         "desvio_padrao": 3.0,
         "tipo_desvio_padrao": "percentual",
         "pontos": [
@@ -111,19 +112,21 @@
       {
         "grandeza": "Frequência Cardíaca (FC)",
         "unidade": "BPM",
-        "palavras_grandeza": ["bpm", "frequencia cardiaca", "ecg", "pulso"],
+        "palavras_grandeza": ["bpm", "frequencia cardiaca", "ecg", "eletrocardiograma", "pulso", "batimentos"],
         "desvio_padrao": 5.0,
         "tipo_desvio_padrao": "fixo",
         "pontos": [
           {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 60, "desvio": 5.0, "tipo_desvio": "fixo", "min": 55.0, "max": 65.0},
           {"ponto": 100, "desvio": 5.0, "tipo_desvio": "fixo", "min": 95.0, "max": 105.0},
+          {"ponto": 120, "desvio": 5.0, "tipo_desvio": "fixo", "min": 115.0, "max": 125.0},
           {"ponto": 240, "desvio": 5.0, "tipo_desvio": "fixo", "min": 235.0, "max": 245.0}
         ]
       },
       {
         "grandeza": "Pressão Não Invasiva - Sistólica",
         "unidade": "mmHg",
-        "palavras_grandeza": ["sistolica", "pni sistolica", "pas"],
+        "palavras_grandeza": ["sistolica", "pni sistolica", "nibp sistolica", "pas"],
         "desvio_padrao": 5.0,
         "tipo_desvio_padrao": "fixo",
         "pontos": [
@@ -135,7 +138,7 @@
       {
         "grandeza": "Pressão Não Invasiva - Diastólica",
         "unidade": "mmHg",
-        "palavras_grandeza": ["diastolica", "pni diastolica", "pad"],
+        "palavras_grandeza": ["diastolica", "pni diastolica", "nibp diastolica", "pad"],
         "desvio_padrao": 5.0,
         "tipo_desvio_padrao": "fixo",
         "pontos": [
@@ -145,9 +148,21 @@
         ]
       },
       {
+        "grandeza": "Pressão Não Invasiva - Média",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["pressao media", "pni media", "nibp media", "pam", "map"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 40, "desvio": 5.0, "tipo_desvio": "fixo", "min": 35.0, "max": 45.0},
+          {"ponto": 93, "desvio": 5.0, "tipo_desvio": "fixo", "min": 88.0, "max": 98.0},
+          {"ponto": 167, "desvio": 5.0, "tipo_desvio": "fixo", "min": 162.0, "max": 172.0}
+        ]
+      },
+      {
         "grandeza": "Respiração (FR)",
         "unidade": "BRPM",
-        "palavras_grandeza": ["respiracao", "brpm", "rpm", "frequencia respiratoria"],
+        "palavras_grandeza": ["respiracao", "brpm", "rpm", "frequencia respiratoria", "resp"],
         "desvio_padrao": 3.0,
         "tipo_desvio_padrao": "fixo",
         "pontos": [
@@ -171,11 +186,12 @@
   "Desfibrilador - ZOLL M2": {
     "familia": "Cardioversor e Desfibrilador Automático (DEA)",
     "palavras_chave": ["zoll", "m2"],
+    "herdar_monitor_de": "Cardioversores",
     "parametros": [
       {
         "grandeza": "Energia Descarregada",
         "unidade": "J",
-        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "j"],
+        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "cardioversao", "carga"],
         "desvio_padrao": 15.0,
         "tipo_desvio_padrao": "percentual",
         "pontos": [
@@ -192,11 +208,12 @@
   "Desfibrilador - MINDRAY BeneHeart D3": {
     "familia": "Cardioversor e Desfibrilador Automático (DEA)",
     "palavras_chave": ["mindray", "beneheart", "d3"],
+    "herdar_monitor_de": "Cardioversores",
     "parametros": [
       {
         "grandeza": "Energia Descarregada",
         "unidade": "J",
-        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "j"],
+        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "cardioversao", "carga"],
         "desvio_padrao": 15.0,
         "tipo_desvio_padrao": "percentual",
         "pontos": [
@@ -211,11 +228,12 @@
   "Desfibrilador - PHILIPS DFM100": {
     "familia": "Cardioversor e Desfibrilador Automático (DEA)",
     "palavras_chave": ["philips", "dfm100", "dfm 100"],
+    "herdar_monitor_de": "Cardioversores",
     "parametros": [
       {
         "grandeza": "Energia Descarregada",
         "unidade": "J",
-        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "j"],
+        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "cardioversao", "carga"],
         "desvio_padrao": 15.0,
         "tipo_desvio_padrao": "percentual",
         "pontos": [
@@ -228,11 +246,12 @@
   "Desfibrilador - INSTRAMED Cardiomax": {
     "familia": "Cardioversor e Desfibrilador Automático (DEA)",
     "palavras_chave": ["instramed", "cardiomax"],
+    "herdar_monitor_de": "Cardioversores",
     "parametros": [
       {
         "grandeza": "Energia Descarregada",
         "unidade": "J",
-        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "j"],
+        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "cardioversao", "carga"],
         "desvio_padrao": 15.0,
         "tipo_desvio_padrao": "percentual",
         "pontos": [
@@ -250,7 +269,7 @@
       {
         "grandeza": "Energia Descarregada",
         "unidade": "J",
-        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "j"],
+        "palavras_grandeza": ["energia", "joule", "desfibrilacao", "carga"],
         "desvio_padrao": 15.0,
         "tipo_desvio_padrao": "percentual",
         "pontos": [

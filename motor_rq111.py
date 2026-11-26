@@ -18,6 +18,7 @@ def normalizar(valor):
         "º": "o", "ª": "a", "µ": "u", "μ": "u", "ç": "c",
         "ã": "a", "á": "a", "à": "a", "â": "a", "é": "e",
         "ê": "e", "í": "i", "ó": "o", "ô": "o", "õ": "o", "ú": "u",
+        "₂": "2", "₀": "0",
     }
     for antigo, novo in substituicoes.items():
         texto = texto.replace(antigo, novo)
@@ -79,6 +80,21 @@ def carregar_regras(caminho="regras_rq111.json"):
         return json.load(f)
 
 
+def _obter_parametros_equipamento(equipamento, regras):
+    config_eq = regras.get(equipamento)
+    if not config_eq:
+        return []
+
+    parametros = list(config_eq.get("parametros", []))
+    base_monitor = config_eq.get("herdar_monitor_de")
+    if base_monitor and base_monitor in regras:
+        existentes = {normalizar(p.get("grandeza", "")) for p in parametros}
+        for p_base in regras[base_monitor].get("parametros", []):
+            if normalizar(p_base.get("grandeza", "")) not in existentes:
+                parametros.append(p_base)
+    return parametros
+
+
 def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="Automático"):
     if tipo_manual and tipo_manual != "Automático":
         return tipo_manual
@@ -136,30 +152,39 @@ def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="A
     return next(iter(regras.keys()), "Não identificado")
 
 
+def _linha_bate_chave(texto_norm, chaves):
+    for k in chaves:
+        if not k:
+            continue
+        if len(k) <= 2:
+            if re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", texto_norm):
+                return True
+        else:
+            if re.search(rf"\b{re.escape(k)}\b", texto_norm) or k in texto_norm:
+                return True
+    return False
+
+
 def _selecionar_parametro(parametros, linha_norm, contexto_norm):
     if len(parametros) == 1:
         return parametros[0]
 
+    # 1. Tenta identificar a grandeza diretamente na linha atual
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
-        if any(k and re.search(rf"\b{re.escape(k)}\b", linha_norm) for k in chaves):
+        if _linha_bate_chave(linha_norm, chaves):
             return param
 
+    # 2. Tenta identificar pelo cabeçalho da seção/tabela ativa
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
-        if any(k and re.search(rf"\b{re.escape(k)}\b", contexto_norm) for k in chaves):
+        if _linha_bate_chave(contexto_norm, chaves):
             return param
 
     return None
 
 
 def _buscar_ou_calcular_regra_ponto(param, valor_referencia):
-    """
-    Busca a regra exata do ponto na RQ.COR.111.
-    Se o certificado for antigo e trouxer um ponto diferente da lista atual,
-    calcula automaticamente a tolerância e os limites mínimo/máximo usando
-    a regra padrão (percentual ou fixa) do parâmetro.
-    """
     pontos_config = param.get("pontos", [])
     for item in pontos_config:
         p = float(item["ponto"])
@@ -184,17 +209,9 @@ def _buscar_ou_calcular_regra_ponto(param, valor_referencia):
 
 
 def validar_pontos_dinamico(texto_pdf, equipamento, regras):
-    config_eq = regras.get(equipamento)
-    if not config_eq:
+    parametros = _obter_parametros_equipamento(equipamento, regras)
+    if not parametros:
         return []
-
-    parametros = config_eq.get("parametros", [])
-    todas_chaves_grandezas = [
-        normalizar(k)
-        for p in parametros
-        for k in p.get("palavras_grandeza", [])
-        if k
-    ]
 
     pontos_extraidos = []
     linhas = texto_pdf.splitlines()
@@ -247,8 +264,12 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not capturando_tabela:
             continue
 
-        if any(k in linha_norm for k in todas_chaves_grandezas):
-            contexto_grandeza = linha_norm
+        # Atualiza o contexto sempre que aparecer cabeçalho de grandeza (ex.: SpO2, ECG, PNI, Energia)
+        for p in parametros:
+            chaves_p = [normalizar(k) for k in p.get("palavras_grandeza", [])]
+            if _linha_bate_chave(linha_norm, chaves_p):
+                contexto_grandeza = linha_norm
+                break
 
         if "/" in linha or re.search(r"\b20[2-3]\d\b", linha):
             continue
@@ -269,7 +290,9 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         ]):
             continue
 
-        match_nums = re.findall(r"([−\-\d,\.]+)", linha)
+        # Remove tokens como "SpO2" ou "CO2" antes de extrair os números da medição
+        linha_sem_siglas = re.sub(r"\b(spo2|etco2|co2|m2|d3|dfm100)\b", " ", linha_norm)
+        match_nums = re.findall(r"([−\-\d,\.]+)", linha_sem_siglas)
         if len(match_nums) < 4:
             continue
 
@@ -285,7 +308,7 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not param:
             continue
 
-        # Detecta automaticamente se val1 é o nominal (inteiro/padrão) ou se veio invertido
+        # Detecta automaticamente se val1 é o nominal ou se veio invertido
         if "energia" in normalizar(param.get("grandeza", "")) and (val2 % 5 == 0 and val1 % 5 != 0):
             ponto_nominal = val2
             ponto_lido = val1
@@ -309,10 +332,11 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         erro_real = erro_val if erro_val is not None else (ponto_lido - ponto_nominal)
         erro_total = abs(erro_real) + abs(inc_val)
 
-        dentro_tolerancia = erro_total <= tolerancia
+        # Margem de 0.05 para evitar falsa reprovação por arredondamento de 1 casa decimal no JSON
+        dentro_tolerancia = erro_total <= (tolerancia + 1e-6)
         dentro_limites = True
         if lim_min is not None and lim_max is not None:
-            dentro_limites = (float(lim_min) <= ponto_lido <= float(lim_max))
+            dentro_limites = ((float(lim_min) - 0.05) <= ponto_lido <= (float(lim_max) + 0.05))
 
         aprovado = dentro_tolerancia and dentro_limites
 
