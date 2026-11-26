@@ -21,7 +21,7 @@ from motor_rq111 import (
 st.set_page_config(page_title="Validador de Certificados", page_icon="📄", layout="wide")
 
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def obter_regras():
     return carregar_regras("regras_rq111.json")
 
@@ -92,7 +92,7 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
 
     dados = [["Campo", "Valor"]]
     dados.extend([[escape(str(k)), escape(str(v))] for k, v in metadados.items()])
-    tab = Table(dados, colWidths=[170, 450], repeatRows=1)
+    tab = Table(dados, colWidths=[170, 580], repeatRows=1)
     tab.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
@@ -103,33 +103,40 @@ def gerar_relatorio_pdf(nome_usuario, numero_os, arquivo_nome, metadados,
     conteudo.extend([Spacer(1, 10), Paragraph("Pontos extraídos e Validação", estilos["Heading2"])])
 
     if pontos:
-        dados_p = [[
-            "Grandeza", "Unid.", "Nominal", "Lido", "Lim. Mín.", "Lim. Máx.",
-            "Erro", "Incerteza", "Erro Total", "Desvio Aceit.", "Conclusão"
-        ]]
-        for p in pontos:
-            dados_p.append([
-                str(p.get("Grandeza", "")),
-                str(p.get("Unidade", "")),
-                str(p.get("Ponto Nominal", "")),
-                str(p.get("Ponto Lido", "")),
-                str(p.get("Limite Mínimo", "")),
-                str(p.get("Limite Máximo", "")),
-                fmt_num(p.get("Erro")),
-                fmt_num(p.get("Incerteza")),
-                fmt_num(p.get("Erro Total")),
-                fmt_num(p.get("Desvio Aceitável")),
-                str(p.get("CONCLUSAO", "")),
-            ])
+        df_all = pd.DataFrame(pontos)
+        for grandeza, grupo in df_all.groupby("Grandeza", sort=False):
+            conteudo.append(Spacer(1, 6))
+            conteudo.append(Paragraph(f"<b>{escape(str(grandeza))}</b>", estilos["Heading3"]))
+            dados_p = [[
+                "Unid.", "Nominal", "Lido", "Lim. Mín.", "Lim. Máx.",
+                "Erro", "Incerteza", "Erro Total", "Desvio Aceit.", "Conclusão"
+            ]]
+            for _, p in grupo.iterrows():
+                dados_p.append([
+                    str(p.get("Unidade", "")),
+                    str(p.get("Ponto Nominal", "")),
+                    str(p.get("Ponto Lido", "")),
+                    str(p.get("Limite Mínimo", "")),
+                    str(p.get("Limite Máximo", "")),
+                    fmt_num(p.get("Erro")),
+                    fmt_num(p.get("Incerteza")),
+                    fmt_num(p.get("Erro Total")),
+                    fmt_num(p.get("Desvio Aceitável")),
+                    str(p.get("CONCLUSAO", "")),
+                ])
 
-        tabp = Table(dados_p, repeatRows=1)
-        tabp.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ]))
-        conteudo.append(tabp)
+            tabp = Table(
+                dados_p,
+                colWidths=[45, 65, 65, 65, 65, 65, 65, 70, 75, 75],
+                repeatRows=1,
+            )
+            tabp.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ]))
+            conteudo.append(tabp)
     else:
         conteudo.append(Paragraph("Nenhum ponto extraído automaticamente.", estilos["Normal"]))
 
@@ -147,6 +154,10 @@ st.title("📄 Validador de Certificados de Calibração")
 st.write(
     "Sistema Validador de Calibração — Garantia de Conformidade com a ABNT NBR ISO/IEC 17025 e RQ.COR.111."
 )
+
+if st.button("🔄 Recarregar regras (RQ.COR.111)"):
+    st.cache_data.clear()
+    st.rerun()
 
 try:
     regras_rq111 = obter_regras()
@@ -175,18 +186,18 @@ pdf_files = st.file_uploader(
 if pdf_files:
     for pdf_file in pdf_files:
         st.divider()
-        st.subheader(f"Certificado: {pdf_file.name}")
+        st.subheader(f"📄 Certificado: {pdf_file.name}")
         try:
             texto = extrair_texto_pdf(pdf_file)
             metadados = extrair_metadados(texto, pdf_file.name, regras_rq111, tipo_forçado)
             equipamento = metadados.get("Equipamento identificado", "")
             pontos = validar_pontos_dinamico(texto, equipamento, regras_rq111)
 
-            st.write("**Dados identificados no certificado**")
+            st.write("**📋 Dados identificados no certificado**")
             st.json(metadados)
             st.info(f"Categoria aplicada: **{equipamento}**")
 
-            with st.expander("Conferir texto extraído do PDF (diagnóstico)"):
+            with st.expander("🔍 Conferir texto extraído do PDF (diagnóstico)"):
                 st.text_area(
                     "Texto lido do certificado",
                     value=texto,
@@ -195,14 +206,23 @@ if pdf_files:
                 )
 
             if pontos:
-                st.write("**Tabela de Validação de Pontos**")
+                st.write("**📊 Quadros de validação por grandeza**")
                 df_exibicao = pd.DataFrame(pontos)
-                st.dataframe(df_exibicao, use_container_width=True)
+                for grandeza, grupo in df_exibicao.groupby("Grandeza", sort=False):
+                    st.markdown(f"#### 🔹 {grandeza}")
+                    c1, c2, c3 = st.columns(3)
+                    total_g = len(grupo)
+                    aprov_g = int((grupo["CONCLUSAO"] == "Aprovado").sum())
+                    reprov_g = total_g - aprov_g
+                    c1.metric("Pontos avaliados", total_g)
+                    c2.metric("Aprovados", aprov_g)
+                    c3.metric("Reprovados", reprov_g)
+                    st.dataframe(grupo.drop(columns=["Grandeza"]), use_container_width=True, hide_index=True)
             else:
                 st.warning("Nenhum ponto de calibração foi encontrado neste certificado.")
 
             status_geral = calcular_status_geral(pontos)
-            st.write("### Resultado automático")
+            st.write("### 📌 Resultado automático")
             if status_geral.startswith("APROVADO"):
                 st.success(status_geral)
             elif status_geral.startswith("PENDENTE"):
@@ -210,7 +230,7 @@ if pdf_files:
             else:
                 st.error(status_geral)
 
-            st.write("### Liberação técnica")
+            st.write("### 📝 Liberação técnica")
             if status_geral.startswith("APROVADO") and nome_usuario.strip() and numero_os.strip():
                 confirmar = st.checkbox(
                     "Conferi os dados extraídos, o equipamento e os limites calculados.",

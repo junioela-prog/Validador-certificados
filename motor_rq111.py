@@ -155,7 +155,6 @@ def _linha_bate_chave(texto_norm, chaves):
     for k in chaves:
         if not k:
             continue
-        # Exige palavra inteira para não casar "pad" dentro de "padrao"
         if re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", texto_norm):
             return True
     return False
@@ -168,7 +167,7 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm):
     # 1. Identificação direta pela unidade no início da linha da tabela
     mapa_unidades_inicio = [
         (r"^j\s+[\d,\.\-−]", "energia"),
-        (r"^%\s+[\d,\.\-−]", "oximetria"),
+        (r"^%(?:spo2)?\s+[\d,\.\-−]", "oximetria"),
         (r"^bpm\s+[\d,\.\-−]", "frequencia cardiaca"),
         (r"^(?:brpm|rpm)\s+[\d,\.\-−]", "respiracao"),
     ]
@@ -178,13 +177,22 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm):
                 if alvo_grandeza in normalizar(param.get("grandeza", "")):
                     return param
 
-    # 2. Palavra-chave exata na própria linha
+    # 2. Caso específico de Pressão (mmHg): diferencia Sistólica, Diastólica e Média pelo contexto
+    if re.match(r"^mmhg\s+[\d,\.\-−]", linha_norm):
+        for tipo_pressao in ["sistolica", "diastolica", "media"]:
+            if tipo_pressao in contexto_norm:
+                for param in parametros:
+                    g_norm = normalizar(param.get("grandeza", ""))
+                    if "pressao" in g_norm and tipo_pressao in g_norm:
+                        return param
+
+    # 3. Palavra-chave exata na própria linha
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
         if _linha_bate_chave(linha_norm, chaves):
             return param
 
-    # 3. Palavra-chave exata no cabeçalho da seção/tabela ativa
+    # 4. Palavra-chave exata no cabeçalho da seção/tabela ativa
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
         if _linha_bate_chave(contexto_norm, chaves):
@@ -289,7 +297,6 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not capturando_tabela:
             continue
 
-        # Ignora linhas de cabeçalho de coluna antes de atualizar o contexto
         if any(spec in l_low for spec in [
             "carga mínima",
             "carga minima",
@@ -307,18 +314,27 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         ]):
             continue
 
-        for p in parametros:
-            chaves_p = [normalizar(k) for k in p.get("palavras_grandeza", [])]
-            if _linha_bate_chave(linha_norm, chaves_p):
-                contexto_grandeza = linha_norm
-                break
-
-        if "/" in linha or re.search(r"\b20[2-3]\d\b", linha):
-            continue
-
         linha_sem_siglas = re.sub(r"\b(spo2|etco2|co2|m2|d3|dfm100)\b", " ", linha_norm)
         match_nums = re.findall(r"([−\-\d,\.]+)", linha_sem_siglas)
+
+        # Atualiza o contexto de seção quando a linha é um título (menos de 4 números)
         if len(match_nums) < 4:
+            if any(w in linha_norm for w in [
+                "sistolica", "diastolica", "pressao media",
+                "frequencia cardiaca", "oximetria", "spo2",
+                "respiratoria", "respiracao", "capnografia",
+                "etco2", "energia"
+            ]):
+                contexto_grandeza = linha_norm
+            else:
+                for p in parametros:
+                    chaves_p = [normalizar(k) for k in p.get("palavras_grandeza", [])]
+                    if _linha_bate_chave(linha_norm, chaves_p):
+                        contexto_grandeza = linha_norm
+                        break
+            continue
+
+        if "/" in linha or re.search(r"\b20[2-3]\d\b", linha):
             continue
 
         val1 = numero_ptbr(match_nums[0])

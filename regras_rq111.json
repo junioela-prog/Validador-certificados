@@ -81,7 +81,6 @@
   "Cardioversores": {
     "familia": "Cardioversor e Desfibrilador Automático (DEA)",
     "palavras_chave": ["cardioversor", "cardioversores"],
-    "incluir_parametros_de": "Cardioversores",
     "parametros": [
       {
         "grandeza": "Energia Descarregada",
