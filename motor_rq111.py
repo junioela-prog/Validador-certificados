@@ -135,6 +135,30 @@ def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="A
         if eq_nome in regras and any(c in alvo for c in chaves):
             return eq_nome
 
+    # Diferenciação específica para Termômetros e Termohigrômetros
+    if "termometro" in alvo or "termohigrometro" in alvo:
+        if "infravermelho" in alvo:
+            if (
+                re.search(r"(?<![\d,\.])(?:36|38|40)(?:[,\.]0+)?\b", texto_norm)
+                and not re.search(r"(?<![\d,\.])(?:2|5|8|15|20)(?:[,\.]0+)?\b", texto_norm)
+                and "Termômetro infravermelho - Paciente" in regras
+            ):
+                return "Termômetro infravermelho - Paciente"
+            if "Termômetro infravermelho - Maletas (amostras e medicamentos)" in regras:
+                return "Termômetro infravermelho - Maletas (amostras e medicamentos)"
+
+        if "freezer" in alvo or re.search(r"-\s*(?:5|10|20)(?:[,\.]\d+)?\b", texto_norm):
+            if "Termômetro ou Termohigrômetro - Freezer" in regras:
+                return "Termômetro ou Termohigrômetro - Freezer"
+
+        if "geladeira" in alvo or "frigobar" in alvo:
+            if "Termômetro ou Termohigrômetro - Geladeira e/ou Frigobar" in regras:
+                return "Termômetro ou Termohigrômetro - Geladeira e/ou Frigobar"
+
+        if "termohigrometro" in alvo or "ambiente" in alvo or "%ur" in texto_norm or "umidade" in texto_norm:
+            if "Termohigrômetro - Temperatura Ambiente" in regras:
+                return "Termohigrômetro - Temperatura Ambiente"
+
     melhor_eq = None
     melhor_score = 0
 
@@ -170,12 +194,21 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm, contexto_pressa
         (r"^%(?:spo2)?\s+[\d,\.\-−]", "oximetria"),
         (r"^bpm\s+[\d,\.\-−]", "frequencia cardiaca"),
         (r"^(?:brpm|rpm)\s+[\d,\.\-−]", "respiracao"),
+        (r"^(?:°c|oc|c)\s+[\d,\.\-−]", "temperatura"),
+        (r"^(?:%ur|%rh|ur|rh)\s+[\d,\.\-−]", "umidade"),
     ]
     for padrao_unid, alvo_grandeza in mapa_unidades_inicio:
         if re.match(padrao_unid, linha_norm):
             for param in parametros:
                 if alvo_grandeza in normalizar(param.get("grandeza", "")):
                     return param
+
+    # Caso especial de "%" sozinho no início da linha: pode ser Oximetria (SpO2) ou Umidade
+    if re.match(r"^%\s+[\d,\.\-−]", linha_norm):
+        for param in parametros:
+            g_norm = normalizar(param.get("grandeza", ""))
+            if "umidade" in g_norm or "oximetria" in g_norm:
+                return param
 
     # 2. Pressão Não Invasiva (mmHg): usa o subtítulo ativo (Sistólica / Diastólica / Média)
     if re.match(r"^mmhg\s+[\d,\.\-−]", linha_norm):
@@ -216,7 +249,7 @@ def _buscar_ou_calcular_regra_ponto(param, valor_referencia):
     pontos_config = param.get("pontos", [])
     for item in pontos_config:
         p = float(item["ponto"])
-        if abs(valor_referencia - p) <= max(0.01, p * 0.005):
+        if abs(valor_referencia - p) <= max(0.05, abs(p) * 0.005):
             return item, False
 
     desvio_padrao = float(param.get("desvio_padrao", 0.0))
@@ -252,9 +285,13 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         return []
 
     texto_total_norm = normalizar(texto_pdf)
+    pos_padrao = texto_total_norm.find("indicado no padrao")
+    pos_instrumento = texto_total_norm.find("indicado no instrumento")
     padrao_antes_instrumento = (
-        "valor indicado no padrao valor indicado no instrumento" in texto_total_norm
-        or "indicado no padrao" in texto_total_norm
+        pos_padrao != -1
+        and pos_instrumento != -1
+        and pos_padrao < pos_instrumento
+        and "valor indicado no padrao valor indicado no instrumento" not in texto_total_norm
     )
 
     pontos_extraidos = []
@@ -275,10 +312,7 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
             "umidade relativa",
             "pressão atmosférica",
             "pressao atmosferica",
-            "%ur",
             "hpa",
-            "°c",
-            "ºc",
         ]):
             continue
 
@@ -347,7 +381,7 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
             if any(w in linha_norm for w in [
                 "frequencia cardiaca", "oximetria", "spo2",
                 "respiratoria", "respiracao", "capnografia",
-                "etco2", "energia"
+                "etco2", "energia", "temperatura", "umidade"
             ]):
                 contexto_grandeza = linha_norm
             else:
