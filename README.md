@@ -1,3 +1,4 @@
-# Projeto Streamlit
-
-streamlit run app.py
+streamlit
+pandas
+pdfplumber
+reportlab
