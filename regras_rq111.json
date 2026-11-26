@@ -279,5 +279,339 @@
         ]
       }
     ]
+  },
+  "Monitores multiparâmetros": {
+    "familia": "Monitores multiparâmetros",
+    "palavras_chave": ["monitor multiparametro", "monitor multiparametrico", "multiparametro", "multiparametrico"],
+    "parametros": [
+      {
+        "grandeza": "Oximetria (SpO2)",
+        "unidade": "%",
+        "palavras_grandeza": ["spo2", "oximetria", "saturacao", "oxigenio"],
+        "desvio_padrao": 3.0,
+        "tipo_desvio_padrao": "percentual",
+        "pontos": [
+          {"ponto": 70, "desvio": 3.0, "tipo_desvio": "percentual", "min": 67.9, "max": 72.1},
+          {"ponto": 83, "desvio": 3.0, "tipo_desvio": "percentual", "min": 80.5, "max": 85.5},
+          {"ponto": 97, "desvio": 3.0, "tipo_desvio": "percentual", "min": 94.1, "max": 99.9}
+        ]
+      },
+      {
+        "grandeza": "Frequência Cardíaca (FC)",
+        "unidade": "BPM",
+        "palavras_grandeza": ["bpm", "frequencia cardiaca", "ecg", "eletrocardiograma", "pulso", "batimentos"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 100, "desvio": 5.0, "tipo_desvio": "fixo", "min": 95.0, "max": 105.0},
+          {"ponto": 240, "desvio": 5.0, "tipo_desvio": "fixo", "min": 235.0, "max": 245.0}
+        ]
+      },
+      {
+        "grandeza": "Pressão Não Invasiva - Sistólica",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["sistolica", "pni sistolica", "nibp sistolica", "pas"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 60, "desvio": 5.0, "tipo_desvio": "fixo", "min": 55.0, "max": 65.0},
+          {"ponto": 120, "desvio": 5.0, "tipo_desvio": "fixo", "min": 115.0, "max": 125.0},
+          {"ponto": 200, "desvio": 5.0, "tipo_desvio": "fixo", "min": 195.0, "max": 205.0}
+        ]
+      },
+      {
+        "grandeza": "Pressão Não Invasiva - Diastólica",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["diastolica", "pni diastolica", "nibp diastolica", "pad"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 80, "desvio": 5.0, "tipo_desvio": "fixo", "min": 75.0, "max": 85.0},
+          {"ponto": 150, "desvio": 5.0, "tipo_desvio": "fixo", "min": 145.0, "max": 155.0}
+        ]
+      },
+      {
+        "grandeza": "Respiração (FR)",
+        "unidade": "BRPM",
+        "palavras_grandeza": ["respiracao", "brpm", "rpm", "frequencia respiratoria", "resp"],
+        "desvio_padrao": 3.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 15, "desvio": 3.0, "tipo_desvio": "fixo", "min": 12.0, "max": 18.0},
+          {"ponto": 20, "desvio": 3.0, "tipo_desvio": "fixo", "min": 17.0, "max": 23.0},
+          {"ponto": 30, "desvio": 3.0, "tipo_desvio": "fixo", "min": 27.0, "max": 33.0}
+        ]
+      }
+    ]
+  },
+  "Monitores de triagem": {
+    "familia": "Monitores de triagem",
+    "palavras_chave": ["monitor de triagem", "triagem"],
+    "parametros": [
+      {
+        "grandeza": "Oximetria (SpO2)",
+        "unidade": "%",
+        "palavras_grandeza": ["spo2", "oximetria", "saturacao", "oxigenio"],
+        "desvio_padrao": 3.0,
+        "tipo_desvio_padrao": "percentual",
+        "pontos": [
+          {"ponto": 70, "desvio": 3.0, "tipo_desvio": "percentual", "min": 67.9, "max": 72.1},
+          {"ponto": 83, "desvio": 3.0, "tipo_desvio": "percentual", "min": 80.5, "max": 85.5},
+          {"ponto": 97, "desvio": 3.0, "tipo_desvio": "percentual", "min": 94.1, "max": 99.9}
+        ]
+      },
+      {
+        "grandeza": "Frequência Cardíaca da Oximetria (FC)",
+        "unidade": "BPM",
+        "palavras_grandeza": ["bpm", "frequencia cardiaca", "frequencia de pulso", "pulso", "batimentos"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 100, "desvio": 5.0, "tipo_desvio": "fixo", "min": 95.0, "max": 105.0},
+          {"ponto": 240, "desvio": 5.0, "tipo_desvio": "fixo", "min": 235.0, "max": 245.0}
+        ]
+      },
+      {
+        "grandeza": "Pressão Não Invasiva - Sistólica",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["sistolica", "pni sistolica", "nibp sistolica", "pas"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 60, "desvio": 5.0, "tipo_desvio": "fixo", "min": 55.0, "max": 65.0},
+          {"ponto": 120, "desvio": 5.0, "tipo_desvio": "fixo", "min": 115.0, "max": 125.0},
+          {"ponto": 200, "desvio": 5.0, "tipo_desvio": "fixo", "min": 195.0, "max": 205.0}
+        ]
+      },
+      {
+        "grandeza": "Pressão Não Invasiva - Diastólica",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["diastolica", "pni diastolica", "nibp diastolica", "pad"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 80, "desvio": 5.0, "tipo_desvio": "fixo", "min": 75.0, "max": 85.0},
+          {"ponto": 150, "desvio": 5.0, "tipo_desvio": "fixo", "min": 145.0, "max": 155.0}
+        ]
+      },
+      {
+        "grandeza": "Temperatura",
+        "unidade": "°C",
+        "palavras_grandeza": ["temperatura", "temp"],
+        "desvio_padrao": 0.8,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 36, "desvio": 0.8, "tipo_desvio": "fixo", "min": 35.2, "max": 36.8},
+          {"ponto": 38, "desvio": 0.8, "tipo_desvio": "fixo", "min": 37.2, "max": 38.8},
+          {"ponto": 40, "desvio": 0.8, "tipo_desvio": "fixo", "min": 39.2, "max": 40.8}
+        ]
+      }
+    ]
+  },
+  "Oxímetro de pulso (leito ou portátil)": {
+    "familia": "Oxímetro de pulso (leito ou portátil)",
+    "palavras_chave": ["oximetro de pulso", "oximetro portatil", "oximetro de leito", "oximetro"],
+    "parametros": [
+      {
+        "grandeza": "Oximetria (SpO2)",
+        "unidade": "%",
+        "palavras_grandeza": ["spo2", "oximetria", "saturacao", "oxigenio"],
+        "desvio_padrao": 3.0,
+        "tipo_desvio_padrao": "percentual",
+        "pontos": [
+          {"ponto": 70, "desvio": 3.0, "tipo_desvio": "percentual", "min": 67.9, "max": 72.1},
+          {"ponto": 83, "desvio": 3.0, "tipo_desvio": "percentual", "min": 80.5, "max": 85.5},
+          {"ponto": 97, "desvio": 3.0, "tipo_desvio": "percentual", "min": 94.1, "max": 99.9}
+        ]
+      },
+      {
+        "grandeza": "Frequência Cardíaca da Oximetria (FC)",
+        "unidade": "BPM",
+        "palavras_grandeza": ["bpm", "frequencia cardiaca", "frequencia de pulso", "pulso", "batimentos"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 100, "desvio": 5.0, "tipo_desvio": "fixo", "min": 95.0, "max": 105.0},
+          {"ponto": 240, "desvio": 5.0, "tipo_desvio": "fixo", "min": 235.0, "max": 245.0}
+        ]
+      }
+    ]
+  },
+  "Esfigmomanômetro Digital": {
+    "familia": "Esfigmomanômetro Digital",
+    "palavras_chave": ["esfigmomanometro digital", "esfigmo digital", "monitor de pressao arterial digital"],
+    "parametros": [
+      {
+        "grandeza": "Pressão Não Invasiva - Sistólica",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["sistolica", "pni sistolica", "nibp sistolica", "pas"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 60, "desvio": 5.0, "tipo_desvio": "fixo", "min": 55.0, "max": 65.0},
+          {"ponto": 120, "desvio": 5.0, "tipo_desvio": "fixo", "min": 115.0, "max": 125.0},
+          {"ponto": 200, "desvio": 5.0, "tipo_desvio": "fixo", "min": 195.0, "max": 205.0}
+        ]
+      },
+      {
+        "grandeza": "Pressão Não Invasiva - Diastólica",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["diastolica", "pni diastolica", "nibp diastolica", "pad"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 80, "desvio": 5.0, "tipo_desvio": "fixo", "min": 75.0, "max": 85.0},
+          {"ponto": 150, "desvio": 5.0, "tipo_desvio": "fixo", "min": 145.0, "max": 155.0}
+        ]
+      }
+    ]
+  },
+  "Esfigmomanômetro Analógico": {
+    "familia": "Esfigmomanômetro Analógico",
+    "palavras_chave": ["esfigmomanometro analogico", "esfigmo analogico", "esfigmomanometro aneroide"],
+    "parametros": [
+      {
+        "grandeza": "Pressão",
+        "unidade": "mmHg",
+        "palavras_grandeza": ["pressao", "mmhg", "manometro"],
+        "desvio_padrao": 4.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 40, "desvio": 4.0, "tipo_desvio": "fixo", "min": 36.0, "max": 44.0},
+          {"ponto": 80, "desvio": 4.0, "tipo_desvio": "fixo", "min": 76.0, "max": 84.0},
+          {"ponto": 120, "desvio": 4.0, "tipo_desvio": "fixo", "min": 116.0, "max": 124.0},
+          {"ponto": 240, "desvio": 4.0, "tipo_desvio": "fixo", "min": 236.0, "max": 244.0},
+          {"ponto": 280, "desvio": 4.0, "tipo_desvio": "fixo", "min": 276.0, "max": 284.0}
+        ]
+      }
+    ]
+  },
+  "Eletrocardiógrafo": {
+    "familia": "Eletrocardiógrafo",
+    "palavras_chave": ["eletrocardiografo", "eletrocardiograma"],
+    "parametros": [
+      {
+        "grandeza": "Frequência Cardíaca (FC)",
+        "unidade": "BPM",
+        "palavras_grandeza": ["bpm", "frequencia cardiaca", "ecg", "eletrocardiograma", "pulso", "batimentos"],
+        "desvio_padrao": 5.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 30, "desvio": 5.0, "tipo_desvio": "fixo", "min": 25.0, "max": 35.0},
+          {"ponto": 100, "desvio": 5.0, "tipo_desvio": "fixo", "min": 95.0, "max": 105.0},
+          {"ponto": 240, "desvio": 5.0, "tipo_desvio": "fixo", "min": 235.0, "max": 245.0}
+        ]
+      }
+    ]
+  },
+  "Termômetro ou Termohigrômetro - Geladeira e/ou Frigobar": {
+    "familia": "Termômetros e Termohigrômetros",
+    "palavras_chave": ["termometro", "termohigrometro", "geladeira", "frigobar", "sensor externo", "out"],
+    "parametros": [
+      {
+        "grandeza": "Temperatura (Sensor Externo - OUT)",
+        "unidade": "°C",
+        "palavras_grandeza": ["temperatura", "sensor externo", "out", "geladeira", "frigobar"],
+        "desvio_padrao": 1.5,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 2, "desvio": 1.5, "tipo_desvio": "fixo", "min": 0.50, "max": 3.50},
+          {"ponto": 5, "desvio": 1.5, "tipo_desvio": "fixo", "min": 3.50, "max": 6.50},
+          {"ponto": 8, "desvio": 1.5, "tipo_desvio": "fixo", "min": 6.50, "max": 9.50}
+        ]
+      }
+    ]
+  },
+  "Termômetro ou Termohigrômetro - Freezer": {
+    "familia": "Termômetros e Termohigrômetros",
+    "palavras_chave": ["termometro", "termohigrometro", "freezer", "sensor externo", "out"],
+    "parametros": [
+      {
+        "grandeza": "Temperatura (Sensor Externo - OUT)",
+        "unidade": "°C",
+        "palavras_grandeza": ["temperatura", "sensor externo", "out", "freezer"],
+        "desvio_padrao": 1.5,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": -5, "desvio": 1.5, "tipo_desvio": "fixo", "min": -6.50, "max": -3.50},
+          {"ponto": -10, "desvio": 1.5, "tipo_desvio": "fixo", "min": -11.50, "max": -8.50},
+          {"ponto": -20, "desvio": 1.5, "tipo_desvio": "fixo", "min": -21.50, "max": -18.50}
+        ]
+      }
+    ]
+  },
+  "Termohigrômetro - Temperatura Ambiente": {
+    "familia": "Termômetros e Termohigrômetros",
+    "palavras_chave": ["termohigrometro", "temperatura ambiente", "ambiente", "umidade"],
+    "parametros": [
+      {
+        "grandeza": "Temperatura Ambiente",
+        "unidade": "°C",
+        "palavras_grandeza": ["temperatura", "ambiente", "temperatura ambiente"],
+        "desvio_padrao": 1.5,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 20, "desvio": 1.5, "tipo_desvio": "fixo", "min": 18.50, "max": 21.50},
+          {"ponto": 22, "desvio": 1.5, "tipo_desvio": "fixo", "min": 20.50, "max": 23.50},
+          {"ponto": 24, "desvio": 1.5, "tipo_desvio": "fixo", "min": 22.50, "max": 25.50}
+        ]
+      },
+      {
+        "grandeza": "Umidade",
+        "unidade": "%",
+        "palavras_grandeza": ["umidade", "ur", "rh", "%"],
+        "desvio_padrao": 7.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 50, "desvio": 7.0, "tipo_desvio": "fixo", "min": 43.00, "max": 57.00},
+          {"ponto": 60, "desvio": 7.0, "tipo_desvio": "fixo", "min": 53.00, "max": 67.00},
+          {"ponto": 70, "desvio": 7.0, "tipo_desvio": "fixo", "min": 63.00, "max": 77.00}
+        ]
+      }
+    ]
+  },
+  "Termômetro infravermelho - Maletas (amostras e medicamentos)": {
+    "familia": "Termômetros e Termohigrômetros",
+    "palavras_chave": ["termometro infravermelho", "infravermelho", "maleta", "maletas", "amostras", "medicamentos"],
+    "parametros": [
+      {
+        "grandeza": "Temperatura",
+        "unidade": "°C",
+        "palavras_grandeza": ["temperatura", "infravermelho", "maleta", "maletas", "amostras", "medicamentos"],
+        "desvio_padrao": 1.0,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 2, "desvio": 1.0, "tipo_desvio": "fixo", "min": 1.00, "max": 3.00},
+          {"ponto": 5, "desvio": 1.0, "tipo_desvio": "fixo", "min": 4.00, "max": 6.00},
+          {"ponto": 8, "desvio": 1.0, "tipo_desvio": "fixo", "min": 7.00, "max": 9.00},
+          {"ponto": 15, "desvio": 1.0, "tipo_desvio": "fixo", "min": 14.00, "max": 16.00},
+          {"ponto": 20, "desvio": 1.0, "tipo_desvio": "fixo", "min": 19.00, "max": 21.00}
+        ]
+      }
+    ]
+  },
+  "Termômetro infravermelho - Paciente": {
+    "familia": "Termômetros e Termohigrômetros",
+    "palavras_chave": ["termometro infravermelho", "infravermelho", "paciente", "clinico"],
+    "parametros": [
+      {
+        "grandeza": "Temperatura",
+        "unidade": "°C",
+        "palavras_grandeza": ["temperatura", "infravermelho", "paciente"],
+        "desvio_padrao": 0.5,
+        "tipo_desvio_padrao": "fixo",
+        "pontos": [
+          {"ponto": 36, "desvio": 0.5, "tipo_desvio": "fixo", "min": 35.50, "max": 36.50},
+          {"ponto": 38, "desvio": 0.5, "tipo_desvio": "fixo", "min": 37.50, "max": 38.50},
+          {"ponto": 40, "desvio": 0.5, "tipo_desvio": "fixo", "min": 39.50, "max": 40.50}
+        ]
+      }
+    ]
   }
 }
