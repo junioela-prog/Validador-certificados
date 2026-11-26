@@ -95,12 +95,29 @@ def _obter_parametros_equipamento(equipamento, regras):
     return parametros
 
 
+def _extrair_bloco_instrumento(texto):
+    """Isola apenas a seção 'DADOS DO INSTRUMENTO' para não confundir com 'CONDIÇÕES AMBIENTAIS'."""
+    m = re.search(
+        r"dados\s+do\s+instrumento(.*?)(?:3\s*\.\s*condi|condicoes\s+ambientais|procedimento\s+de\s+calibracao|padrao\(oes\))",
+        normalizar(texto),
+        flags=re.DOTALL,
+    )
+    if m:
+        return m.group(1).strip()
+    return normalizar(texto[:900])
+
+
 def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="Automático"):
     if tipo_manual and tipo_manual != "Automático":
         return tipo_manual
 
     texto_norm = normalizar(texto)
-    alvo = normalizar(f"{nome_arquivo} {texto[:3000]}")
+    bloco_inst = _extrair_bloco_instrumento(texto)
+    alvo_principal = normalizar(f"{nome_arquivo} {bloco_inst}")
+
+    # Extrai apenas a seção de resultados para checar pontos medidos sem pegar condições ambientais
+    m_res = re.search(r"resultados\s+da\s+calibracao(.*)", texto_norm, flags=re.DOTALL)
+    texto_resultados = m_res.group(1) if m_res else texto_norm
 
     m_cap = re.search(r"capacidade\s*maxima\s*[:\-]?\s*([\d,\.]+)\s*(kg|g)\b", texto_norm)
     cap_kg = None
@@ -110,12 +127,12 @@ def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="A
         if val_cap is not None:
             cap_kg = val_cap / 1000.0 if unid_cap == "g" else val_cap
 
-    if "balanca" in alvo:
-        if "analitica" in alvo and "Balança analítica - Área de processamento" in regras:
+    if "balanca" in alvo_principal:
+        if "analitica" in alvo_principal and "Balança analítica - Área de processamento" in regras:
             return "Balança analítica - Área de processamento"
         if (
-            "neonatal" in alvo
-            or "pediatrica" in alvo
+            "neonatal" in alvo_principal
+            or "pediatrica" in alvo_principal
             or (cap_kg is not None and cap_kg <= 30)
         ) and "Balança digital - Neonatal" in regras:
             return "Balança digital - Neonatal"
@@ -132,39 +149,42 @@ def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="A
         (["nihon", "kohden"], "Desfibrilador DEA - NIHON KOHDEN"),
     ]
     for chaves, eq_nome in modelos_especificos:
-        if eq_nome in regras and any(c in alvo for c in chaves):
+        if eq_nome in regras and any(c in alvo_principal for c in chaves):
             return eq_nome
 
-    # Diferenciação específica para Termômetros e Termohigrômetros
-    if "termometro" in alvo or "termohigrometro" in alvo:
-        if "infravermelho" in alvo:
+    # Diferenciação específica para Termômetros e Termohigrômetros (usando apenas o bloco do instrumento)
+    if "termometro" in alvo_principal or "termohigrometro" in alvo_principal:
+        if "infravermelho" in alvo_principal:
             if (
-                re.search(r"(?<![\d,\.])(?:36|38|40)(?:[,\.]0+)?\b", texto_norm)
-                and not re.search(r"(?<![\d,\.])(?:2|5|8|15|20)(?:[,\.]0+)?\b", texto_norm)
+                re.search(r"(?<![\d,\.])(?:36|38|40)(?:[,\.]0+)?\b", texto_resultados)
+                and not re.search(r"(?<![\d,\.])(?:2|5|8|15|20)(?:[,\.]0+)?\b", texto_resultados)
                 and "Termômetro infravermelho - Paciente" in regras
             ):
                 return "Termômetro infravermelho - Paciente"
             if "Termômetro infravermelho - Maletas (amostras e medicamentos)" in regras:
                 return "Termômetro infravermelho - Maletas (amostras e medicamentos)"
 
-        if "freezer" in alvo or re.search(r"-\s*(?:5|10|20)(?:[,\.]\d+)?\b", texto_norm):
+        if "freezer" in alvo_principal or re.search(r"-\s*(?:5|10|20)(?:[,\.]\d+)?\b", texto_resultados):
             if "Termômetro ou Termohigrômetro - Freezer" in regras:
                 return "Termômetro ou Termohigrômetro - Freezer"
 
-        if "geladeira" in alvo or "frigobar" in alvo:
+        if "geladeira" in alvo_principal or "frigobar" in alvo_principal:
             if "Termômetro ou Termohigrômetro - Geladeira e/ou Frigobar" in regras:
                 return "Termômetro ou Termohigrômetro - Geladeira e/ou Frigobar"
 
-        if "termohigrometro" in alvo or "ambiente" in alvo or "%ur" in texto_norm or "umidade" in texto_norm:
+        if "termohigrometro" in alvo_principal or "ambiente" in alvo_principal or "%ur" in texto_resultados or "umidade" in texto_resultados:
             if "Termohigrômetro - Temperatura Ambiente" in regras:
                 return "Termohigrômetro - Temperatura Ambiente"
+
+        if "Termômetro ou Termohigrômetro - Geladeira e/ou Frigobar" in regras:
+            return "Termômetro ou Termohigrômetro - Geladeira e/ou Frigobar"
 
     melhor_eq = None
     melhor_score = 0
 
     for eq_nome, dados in regras.items():
         palavras = [normalizar(p) for p in dados.get("palavras_chave", []) if p]
-        score = sum(1 for p in palavras if p in alvo)
+        score = sum(1 for p in palavras if p in alvo_principal)
         if score > melhor_score:
             melhor_score = score
             melhor_eq = eq_nome
@@ -191,7 +211,7 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm, contexto_pressa
     # 1. Unidade direta no início da linha da tabela
     mapa_unidades_inicio = [
         (r"^j\s+[\d,\.\-−]", "energia"),
-        (r"^%(?:spo2)?\s+[\d,\.\-−]", "oximetria"),
+        (r"^%spo2\s+[\d,\.\-−]", "oximetria"),
         (r"^bpm\s+[\d,\.\-−]", "frequencia cardiaca"),
         (r"^(?:brpm|rpm)\s+[\d,\.\-−]", "respiracao"),
         (r"^(?:°c|oc|c)\s+[\d,\.\-−]", "temperatura"),
@@ -203,11 +223,15 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm, contexto_pressa
                 if alvo_grandeza in normalizar(param.get("grandeza", "")):
                     return param
 
-    # Caso especial de "%" sozinho no início da linha: pode ser Oximetria (SpO2) ou Umidade
+    # Caso especial de "%" sozinho no início da linha: pode ser Umidade ou Oximetria (SpO2)
     if re.match(r"^%\s+[\d,\.\-−]", linha_norm):
         for param in parametros:
             g_norm = normalizar(param.get("grandeza", ""))
-            if "umidade" in g_norm or "oximetria" in g_norm:
+            if "umidade" in g_norm:
+                return param
+        for param in parametros:
+            g_norm = normalizar(param.get("grandeza", ""))
+            if "oximetria" in g_norm:
                 return param
 
     # 2. Pressão Não Invasiva (mmHg): usa o subtítulo ativo (Sistólica / Diastólica / Média)
