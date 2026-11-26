@@ -160,11 +160,11 @@ def _linha_bate_chave(texto_norm, chaves):
     return False
 
 
-def _selecionar_parametro(parametros, linha_norm, contexto_norm):
+def _selecionar_parametro(parametros, linha_norm, contexto_norm, contexto_pressao):
     if len(parametros) == 1:
         return parametros[0]
 
-    # 1. Identificação direta pela unidade no início da linha da tabela
+    # 1. Unidade direta no início da linha da tabela
     mapa_unidades_inicio = [
         (r"^j\s+[\d,\.\-−]", "energia"),
         (r"^%(?:spo2)?\s+[\d,\.\-−]", "oximetria"),
@@ -177,14 +177,25 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm):
                 if alvo_grandeza in normalizar(param.get("grandeza", "")):
                     return param
 
-    # 2. Caso específico de Pressão (mmHg): diferencia Sistólica, Diastólica e Média pelo contexto
+    # 2. Pressão Não Invasiva (mmHg): usa o subtítulo ativo (Sistólica / Diastólica / Média)
     if re.match(r"^mmhg\s+[\d,\.\-−]", linha_norm):
-        for tipo_pressao in ["sistolica", "diastolica", "media"]:
-            if tipo_pressao in contexto_norm:
-                for param in parametros:
-                    g_norm = normalizar(param.get("grandeza", ""))
-                    if "pressao" in g_norm and tipo_pressao in g_norm:
-                        return param
+        alvo_p = contexto_pressao or "sistolica"
+        for param in parametros:
+            g_norm = normalizar(param.get("grandeza", ""))
+            if "pressao" in g_norm and alvo_p in g_norm:
+                return param
+        nomes_p = {
+            "sistolica": "Pressão Não Invasiva - Sistólica",
+            "diastolica": "Pressão Não Invasiva - Diastólica",
+            "media": "Pressão Não Invasiva - Média",
+        }
+        return {
+            "grandeza": nomes_p.get(alvo_p, "Pressão Não Invasiva"),
+            "unidade": "mmHg",
+            "desvio_padrao": 5.0,
+            "tipo_desvio_padrao": "fixo",
+            "pontos": [],
+        }
 
     # 3. Palavra-chave exata na própria linha
     for param in parametros:
@@ -250,6 +261,7 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
     linhas = texto_pdf.splitlines()
     capturando_tabela = False
     contexto_grandeza = ""
+    contexto_pressao = ""
 
     for linha in linhas:
         l_low = linha.lower().strip()
@@ -297,6 +309,20 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not capturando_tabela:
             continue
 
+        # Detecta os subtítulos de pressão imediatamente antes de qualquer filtro
+        if "sistolica" in linha_norm:
+            contexto_pressao = "sistolica"
+            contexto_grandeza = linha_norm
+            continue
+        if "diastolica" in linha_norm:
+            contexto_pressao = "diastolica"
+            contexto_grandeza = linha_norm
+            continue
+        if "pressao media" in linha_norm or "pni media" in linha_norm:
+            contexto_pressao = "media"
+            contexto_grandeza = linha_norm
+            continue
+
         if any(spec in l_low for spec in [
             "carga mínima",
             "carga minima",
@@ -317,10 +343,8 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         linha_sem_siglas = re.sub(r"\b(spo2|etco2|co2|m2|d3|dfm100)\b", " ", linha_norm)
         match_nums = re.findall(r"([−\-\d,\.]+)", linha_sem_siglas)
 
-        # Atualiza o contexto de seção quando a linha é um título (menos de 4 números)
         if len(match_nums) < 4:
             if any(w in linha_norm for w in [
-                "sistolica", "diastolica", "pressao media",
                 "frequencia cardiaca", "oximetria", "spo2",
                 "respiratoria", "respiracao", "capnografia",
                 "etco2", "energia"
@@ -345,7 +369,7 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if val1 is None or val2 is None or inc_val is None:
             continue
 
-        param = _selecionar_parametro(parametros, linha_norm, contexto_grandeza)
+        param = _selecionar_parametro(parametros, linha_norm, contexto_grandeza, contexto_pressao)
         if not param:
             continue
 
