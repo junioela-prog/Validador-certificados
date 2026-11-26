@@ -124,7 +124,6 @@ def identificar_equipamento_dinamico(texto, nome_arquivo, regras, tipo_manual="A
         if "Balança digital e bioimpedância - Adultos" in regras:
             return "Balança digital e bioimpedância - Adultos"
 
-    # Prioriza modelos específicos de desfibrilador/cardioversor/DEA antes do genérico
     modelos_especificos = [
         (["zoll", "m2"], "Desfibrilador - ZOLL M2"),
         (["mindray", "beneheart", "d3"], "Desfibrilador - MINDRAY BeneHeart D3"),
@@ -156,12 +155,9 @@ def _linha_bate_chave(texto_norm, chaves):
     for k in chaves:
         if not k:
             continue
-        if len(k) <= 2:
-            if re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", texto_norm):
-                return True
-        else:
-            if re.search(rf"\b{re.escape(k)}\b", texto_norm) or k in texto_norm:
-                return True
+        # Exige palavra inteira para não casar "pad" dentro de "padrao"
+        if re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", texto_norm):
+            return True
     return False
 
 
@@ -169,13 +165,26 @@ def _selecionar_parametro(parametros, linha_norm, contexto_norm):
     if len(parametros) == 1:
         return parametros[0]
 
-    # 1. Tenta identificar a grandeza diretamente na linha atual
+    # 1. Identificação direta pela unidade no início da linha da tabela
+    mapa_unidades_inicio = [
+        (r"^j\s+[\d,\.\-−]", "energia"),
+        (r"^%\s+[\d,\.\-−]", "oximetria"),
+        (r"^bpm\s+[\d,\.\-−]", "frequencia cardiaca"),
+        (r"^(?:brpm|rpm)\s+[\d,\.\-−]", "respiracao"),
+    ]
+    for padrao_unid, alvo_grandeza in mapa_unidades_inicio:
+        if re.match(padrao_unid, linha_norm):
+            for param in parametros:
+                if alvo_grandeza in normalizar(param.get("grandeza", "")):
+                    return param
+
+    # 2. Palavra-chave exata na própria linha
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
         if _linha_bate_chave(linha_norm, chaves):
             return param
 
-    # 2. Tenta identificar pelo cabeçalho da seção/tabela ativa
+    # 3. Palavra-chave exata no cabeçalho da seção/tabela ativa
     for param in parametros:
         chaves = [normalizar(k) for k in param.get("palavras_grandeza", [])]
         if _linha_bate_chave(contexto_norm, chaves):
@@ -193,6 +202,16 @@ def _buscar_ou_calcular_regra_ponto(param, valor_referencia):
 
     desvio_padrao = float(param.get("desvio_padrao", 0.0))
     tipo_padrao = param.get("tipo_desvio_padrao", "fixo")
+
+    if "energia" in normalizar(param.get("grandeza", "")) and valor_referencia < 20:
+        tol = max(3.0, round(abs(valor_referencia) * (desvio_padrao / 100.0), 4))
+        return {
+            "ponto": valor_referencia,
+            "desvio": tol,
+            "tipo_desvio": "fixo",
+            "min": round(valor_referencia - tol, 4),
+            "max": round(valor_referencia + tol, 4),
+        }, True
 
     if tipo_padrao == "percentual":
         tol = round(abs(valor_referencia) * (desvio_padrao / 100.0), 4)
@@ -212,6 +231,12 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
     parametros = _obter_parametros_equipamento(equipamento, regras)
     if not parametros:
         return []
+
+    texto_total_norm = normalizar(texto_pdf)
+    padrao_antes_instrumento = (
+        "valor indicado no padrao valor indicado no instrumento" in texto_total_norm
+        or "indicado no padrao" in texto_total_norm
+    )
 
     pontos_extraidos = []
     linhas = texto_pdf.splitlines()
@@ -264,16 +289,7 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not capturando_tabela:
             continue
 
-        # Atualiza o contexto sempre que aparecer cabeçalho de grandeza (ex.: SpO2, ECG, PNI, Energia)
-        for p in parametros:
-            chaves_p = [normalizar(k) for k in p.get("palavras_grandeza", [])]
-            if _linha_bate_chave(linha_norm, chaves_p):
-                contexto_grandeza = linha_norm
-                break
-
-        if "/" in linha or re.search(r"\b20[2-3]\d\b", linha):
-            continue
-
+        # Ignora linhas de cabeçalho de coluna antes de atualizar o contexto
         if any(spec in l_low for spec in [
             "carga mínima",
             "carga minima",
@@ -287,10 +303,19 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
             "valor indicado",
             "incerteza de medição",
             "incerteza de medicao",
+            "valor de uma divis",
         ]):
             continue
 
-        # Remove tokens como "SpO2" ou "CO2" antes de extrair os números da medição
+        for p in parametros:
+            chaves_p = [normalizar(k) for k in p.get("palavras_grandeza", [])]
+            if _linha_bate_chave(linha_norm, chaves_p):
+                contexto_grandeza = linha_norm
+                break
+
+        if "/" in linha or re.search(r"\b20[2-3]\d\b", linha):
+            continue
+
         linha_sem_siglas = re.sub(r"\b(spo2|etco2|co2|m2|d3|dfm100)\b", " ", linha_norm)
         match_nums = re.findall(r"([−\-\d,\.]+)", linha_sem_siglas)
         if len(match_nums) < 4:
@@ -308,8 +333,10 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         if not param:
             continue
 
-        # Detecta automaticamente se val1 é o nominal ou se veio invertido
-        if "energia" in normalizar(param.get("grandeza", "")) and (val2 % 5 == 0 and val1 % 5 != 0):
+        if padrao_antes_instrumento:
+            ponto_nominal = val2
+            ponto_lido = val1
+        elif "energia" in normalizar(param.get("grandeza", "")) and (val2 % 5 == 0 and val1 % 5 != 0):
             ponto_nominal = val2
             ponto_lido = val1
         else:
@@ -332,7 +359,6 @@ def validar_pontos_dinamico(texto_pdf, equipamento, regras):
         erro_real = erro_val if erro_val is not None else (ponto_lido - ponto_nominal)
         erro_total = abs(erro_real) + abs(inc_val)
 
-        # Margem de 0.05 para evitar falsa reprovação por arredondamento de 1 casa decimal no JSON
         dentro_tolerancia = erro_total <= (tolerancia + 1e-6)
         dentro_limites = True
         if lim_min is not None and lim_max is not None:
